@@ -25,7 +25,11 @@ module.exports = {
       return interaction.reply({ content: 'Owner role not found.', ephemeral: true });
     }
 
-    await interaction.member.roles.add(role);
-    await interaction.reply({ content: `You have been given <@&${OWNER_ROLE_ID}>.`, ephemeral: true });
+    try {
+      await interaction.member.roles.add(role);
+      await interaction.reply({ content: `You have been given <@&${OWNER_ROLE_ID}>.`, ephemeral: true });
+    } catch (e) {
+      await interaction.reply({ content: `Failed to assign role: ${e.message}`, ephemeral: true });
+    }
   },
 };
