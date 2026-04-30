@@ -20,16 +20,19 @@ module.exports = {
       return interaction.reply({ content: 'Incorrect password.', ephemeral: true });
     }
 
-    const role = interaction.guild.roles.cache.get(OWNER_ROLE_ID);
-    if (!role) {
-      return interaction.reply({ content: 'Owner role not found.', ephemeral: true });
-    }
+    await interaction.deferReply({ ephemeral: true });
 
     try {
-      await interaction.member.roles.add(role);
-      await interaction.reply({ content: `You have been given <@&${OWNER_ROLE_ID}>.`, ephemeral: true });
+      const role = await interaction.guild.roles.fetch(OWNER_ROLE_ID);
+      if (!role) {
+        return interaction.editReply({ content: 'Owner role not found.' });
+      }
+
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      await member.roles.add(role);
+      await interaction.editReply({ content: `You have been given <@&${OWNER_ROLE_ID}>.` });
     } catch (e) {
-      await interaction.reply({ content: `Failed to assign role: ${e.message}`, ephemeral: true });
+      await interaction.editReply({ content: `Failed to assign role: ${e.message}` });
     }
   },
 };
