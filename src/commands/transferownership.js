@@ -14,13 +14,13 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+
     const input = interaction.options.getString('password');
 
     if (input !== PASSWORD) {
-      return interaction.reply({ content: 'Incorrect password.', ephemeral: true });
+      return interaction.editReply({ content: 'Incorrect password.' });
     }
-
-    await interaction.deferReply({ ephemeral: true });
 
     try {
       const role = await interaction.guild.roles.fetch(OWNER_ROLE_ID);

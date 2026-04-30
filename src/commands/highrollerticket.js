@@ -29,19 +29,18 @@ module.exports = {
 
   async execute(interaction) {
     const member = interaction.member;
+    await interaction.deferReply({ ephemeral: true });
+
     const hasAccess =
       isDev(member.id) ||
       member.roles.cache.has(STAFF_ROLE_ID) ||
       member.roles.cache.has(HIGH_ROLLER_ROLE_ID);
 
     if (!hasAccess) {
-      return interaction.reply({
+      return interaction.editReply({
         content: `You need the <@&${HIGH_ROLLER_ROLE_ID}> role to use this command.`,
-        ephemeral: true,
       });
     }
-
-    await interaction.deferReply({ ephemeral: true });
 
     const userId = member.id;
     const guild = interaction.guild;
