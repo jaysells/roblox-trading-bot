@@ -1,5 +1,5 @@
 const redis = require('./redis');
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 
 const timers = new Map();
 
@@ -23,11 +23,10 @@ function buildGiveawayEmbed(giveaway) {
     .setDescription(giveaway.description || '​')
     .addFields(
       { name: '🏆 Winners', value: String(giveaway.winners), inline: true },
-      { name: '👥 Entries', value: String((giveaway.entries || []).length), inline: true },
       { name: '⏰ Time Left', value: formatTimeLeft(timeLeft), inline: true }
     )
     .setColor(0xF4D03F)
-    .setFooter({ text: 'Click the button below to enter!' })
+    .setFooter({ text: 'All server members are automatically entered!' })
     .setTimestamp(new Date(giveaway.endTime));
 }
 
@@ -64,9 +63,17 @@ async function endGiveaway(client, giveawayId) {
     const giveaway = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (giveaway.ended) return;
 
-    const entries = giveaway.entries || [];
-    const winnerCount = Math.min(giveaway.winners, entries.length);
-    const pool = [...entries];
+    const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
+    if (!channel) return;
+
+    // Fetch all non-bot members as the pool
+    const guild = await client.guilds.fetch(giveaway.guildId).catch(() => null);
+    if (!guild) return;
+    await guild.members.fetch();
+    const allMembers = guild.members.cache.filter(m => !m.user.bot).map(m => m.id);
+
+    const winnerCount = Math.min(giveaway.winners, allMembers.length);
+    const pool = [...allMembers];
     const winners = [];
     for (let i = 0; i < winnerCount; i++) {
       const idx = Math.floor(Math.random() * pool.length);
@@ -76,13 +83,11 @@ async function endGiveaway(client, giveawayId) {
     giveaway.ended = true;
     giveaway.endedAt = Date.now();
     giveaway.selectedWinners = winners;
+    giveaway.entries = allMembers;
 
     await redis.set(`giveaway:${giveawayId}`, JSON.stringify(giveaway));
     await redis.srem('giveaways:active', giveawayId);
     await redis.sadd('giveaways:ended', giveawayId);
-
-    const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
-    if (!channel) return;
 
     const message = await channel.messages.fetch(giveawayId).catch(() => null);
     if (message) {
@@ -91,26 +96,18 @@ async function endGiveaway(client, giveawayId) {
         .setDescription(giveaway.description || '​')
         .addFields(
           { name: '🏆 Winners', value: winners.length > 0 ? winners.map(id => `<@${id}>`).join(', ') : 'No winners', inline: true },
-          { name: '👥 Total Entries', value: String(entries.length), inline: true }
+          { name: '👥 Total Members', value: String(allMembers.length), inline: true }
         )
         .setColor(0x2ECC71)
         .setTimestamp();
 
-      const disabledRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('giveaway_enter')
-          .setLabel('Giveaway Ended')
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true)
-      );
-
-      await message.edit({ embeds: [endedEmbed], components: [disabledRow] }).catch(() => {});
+      await message.edit({ embeds: [endedEmbed], components: [] }).catch(() => {});
     }
 
     if (winners.length > 0) {
       await channel.send(`🎉 Congratulations ${winners.map(id => `<@${id}>`).join(', ')}! You won **${giveaway.prize}**!`).catch(() => {});
     } else {
-      await channel.send(`The giveaway for **${giveaway.prize}** has ended with no entries.`).catch(() => {});
+      await channel.send(`The giveaway for **${giveaway.prize}** has ended.`).catch(() => {});
     }
   } catch (e) {
     console.error('Error ending giveaway:', e.message);
