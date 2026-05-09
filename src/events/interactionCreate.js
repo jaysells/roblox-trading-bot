@@ -162,9 +162,6 @@ module.exports = {
             ),
             new ActionRowBuilder().addComponents(
               new TextInputBuilder().setCustomId('payment').setLabel('How will you pay?').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. PayPal, CashApp, Crypto')
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('roblox').setLabel('Your Roblox username').setStyle(TextInputStyle.Short).setRequired(true)
             )
           );
           return interaction.showModal(modal);
@@ -175,9 +172,6 @@ module.exports = {
           modal.addComponents(
             new ActionRowBuilder().addComponents(
               new TextInputBuilder().setCustomId('invites').setLabel('How many invites do you have?').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 10')
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('roblox').setLabel('Your Roblox username').setStyle(TextInputStyle.Short).setRequired(true)
             )
           );
           return interaction.showModal(modal);
@@ -236,25 +230,21 @@ module.exports = {
         if (customId === 'buy_ticket_modal') {
           const items   = interaction.fields.getTextInputValue('items');
           const payment = interaction.fields.getTextInputValue('payment');
-          const roblox  = interaction.fields.getTextInputValue('roblox');
           return createTicket(interaction, 'buy', {
             formFields: [
               { label: '🛒 Items to Buy', value: items },
               { label: '💳 Payment Method', value: payment },
-              { label: '🎮 Roblox Username', value: roblox },
             ],
           });
         }
 
         if (customId === 'inviterewards_ticket_modal') {
           const invites = interaction.fields.getTextInputValue('invites').trim();
-          const roblox  = interaction.fields.getTextInputValue('roblox').trim();
           const channelName = `${sanitizeName(invites)}inviterewards-${sanitizeName(interaction.user.username)}`;
           return createTicket(interaction, 'inviterewards', {
             channelName,
             formFields: [
               { label: '📨 Invite Count', value: invites },
-              { label: '🎮 Roblox Username', value: roblox },
             ],
           });
         }
