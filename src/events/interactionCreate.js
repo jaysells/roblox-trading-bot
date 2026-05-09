@@ -170,10 +170,6 @@ module.exports = {
           const messageId = interaction.message.id;
           const userId = interaction.user.id;
 
-          if (hasPermission(interaction.member)) {
-            return interaction.reply({ content: 'Staff cannot enter giveaways.', ephemeral: true });
-          }
-
           const raw = await redis.get(`giveaway:${messageId}`);
           if (!raw) return interaction.reply({ content: 'This giveaway no longer exists.', ephemeral: true });
 

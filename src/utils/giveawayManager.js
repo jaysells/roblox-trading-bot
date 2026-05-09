@@ -3,28 +3,15 @@ const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('
 
 const timers = new Map();
 
-function formatTimeLeft(ms) {
-  if (ms <= 0) return 'Ended';
-  const totalSeconds = Math.floor(ms / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
-}
-
 function buildGiveawayEmbed(giveaway) {
-  const timeLeft = giveaway.endTime - Date.now();
+  const endUnix = Math.floor(giveaway.endTime / 1000);
   return new EmbedBuilder()
     .setTitle(`🎉 GIVEAWAY: ${giveaway.prize}`)
     .setDescription(giveaway.description || '​')
     .addFields(
       { name: '🏆 Winners', value: String(giveaway.winners), inline: true },
       { name: '👥 Entries', value: String((giveaway.entries || []).length), inline: true },
-      { name: '⏰ Time Left', value: formatTimeLeft(timeLeft), inline: true }
+      { name: '⏰ Ends', value: `<t:${endUnix}:R>`, inline: true }
     )
     .setColor(0xF4D03F)
     .setFooter({ text: 'Click the button below to enter!' })
@@ -62,7 +49,6 @@ async function endGiveaway(client, giveawayId) {
   const t = timers.get(giveawayId);
   if (t) {
     clearTimeout(t.endTimeout);
-    clearInterval(t.updateInterval);
     timers.delete(giveawayId);
   }
 
@@ -131,8 +117,7 @@ async function endGiveaway(client, giveawayId) {
 function startGiveawayTimers(client, giveawayId, endTime) {
   const delay = Math.max(0, endTime - Date.now());
   const endTimeout = setTimeout(() => endGiveaway(client, giveawayId), delay);
-  const updateInterval = setInterval(() => updateGiveawayEmbed(client, giveawayId), 60_000);
-  timers.set(giveawayId, { endTimeout, updateInterval });
+  timers.set(giveawayId, { endTimeout });
 }
 
 async function resumeGiveaways(client) {
