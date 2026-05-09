@@ -4,6 +4,8 @@ const {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
 const redis = require('../utils/redis');
@@ -87,8 +89,16 @@ module.exports = {
       selectedWinners: [],
     };
 
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('giveaway_enter')
+        .setLabel('Enter Giveaway')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('🎉')
+    );
+
     const embed = buildGiveawayEmbed(giveawayData);
-    const message = await interaction.channel.send({ embeds: [embed] });
+    const message = await interaction.channel.send({ embeds: [embed], components: [row] });
 
     giveawayData.id = message.id;
     await redis.set(`giveaway:${message.id}`, JSON.stringify(giveawayData));
