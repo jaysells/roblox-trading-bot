@@ -73,6 +73,7 @@ async function endGiveaway(client, giveawayId) {
     if (giveaway.ended) return;
 
     const entries = await redis.smembers(`giveaway:${giveawayId}:entries`) || [];
+    console.log(`[Giveaway] Ending ${giveawayId} | Entries (${entries.length}):`, entries);
     const winnerCount = Math.min(giveaway.winners, entries.length);
     const pool = [...entries];
     const winners = [];
@@ -80,6 +81,7 @@ async function endGiveaway(client, giveawayId) {
       const idx = Math.floor(Math.random() * pool.length);
       winners.push(pool.splice(idx, 1)[0]);
     }
+    console.log(`[Giveaway] Winners:`, winners);
 
     giveaway.ended = true;
     giveaway.endedAt = Date.now();
