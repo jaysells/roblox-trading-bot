@@ -43,7 +43,8 @@ async function updateGiveawayEmbed(client, giveawayId) {
     const message = await channel.messages.fetch(giveawayId).catch(() => null);
     if (!message) return;
 
-    const embed = buildGiveawayEmbed(giveaway);
+    const entryCount = await redis.scard(`giveaway:${giveawayId}:entries`) || 0;
+    const embed = buildGiveawayEmbed({ ...giveaway, entries: new Array(entryCount) });
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('giveaway_enter')
@@ -71,7 +72,7 @@ async function endGiveaway(client, giveawayId) {
     const giveaway = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (giveaway.ended) return;
 
-    const entries = giveaway.entries || [];
+    const entries = await redis.smembers(`giveaway:${giveawayId}:entries`) || [];
     const winnerCount = Math.min(giveaway.winners, entries.length);
     const pool = [...entries];
     const winners = [];
@@ -83,6 +84,7 @@ async function endGiveaway(client, giveawayId) {
     giveaway.ended = true;
     giveaway.endedAt = Date.now();
     giveaway.selectedWinners = winners;
+    giveaway.entries = entries;
 
     await redis.set(`giveaway:${giveawayId}`, JSON.stringify(giveaway));
     await redis.srem('giveaways:active', giveawayId);

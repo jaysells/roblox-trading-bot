@@ -180,19 +180,20 @@ module.exports = {
           const giveaway = typeof raw === 'string' ? JSON.parse(raw) : raw;
           if (giveaway.ended) return interaction.reply({ content: 'This giveaway has already ended.', ephemeral: true });
 
-          if ((giveaway.entries || []).includes(userId)) {
+          const alreadyEntered = await redis.sismember(`giveaway:${messageId}:entries`, userId);
+          if (alreadyEntered) {
             return interaction.reply({ content: 'You are already entered in this giveaway!', ephemeral: true });
           }
 
-          giveaway.entries = [...(giveaway.entries || []), userId];
-          await redis.set(`giveaway:${messageId}`, JSON.stringify(giveaway));
+          await redis.sadd(`giveaway:${messageId}:entries`, userId);
+          const entryCount = await redis.scard(`giveaway:${messageId}:entries`);
 
           await interaction.reply({
             content: `🎉 You've been entered into the **${giveaway.prize}** giveaway! Good luck!`,
             ephemeral: true,
           });
 
-          const updatedEmbed = buildGiveawayEmbed(giveaway);
+          const updatedEmbed = buildGiveawayEmbed({ ...giveaway, entries: new Array(entryCount) });
           await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
           return;
         }
