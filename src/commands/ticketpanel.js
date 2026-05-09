@@ -19,14 +19,16 @@ module.exports = {
         { name: '💸 Sell', value: 'Sell your Roblox items for real money', inline: true },
         { name: '💰 Buy', value: 'Buy Roblox items from us for real money', inline: true },
         { name: '🎉 Giveaway Claim', value: 'Claim your giveaway prize', inline: true },
-        { name: '🛠️ Support', value: 'Get help or ask about anything regarding the server', inline: true }
+        { name: '🛠️ Support', value: 'Get help or ask about anything regarding the server', inline: true },
+        { name: '📨 Invite Rewards', value: 'Claim your invite rewards', inline: true }
       );
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket_sell').setLabel('Sell').setStyle(ButtonStyle.Success).setEmoji('💸'),
       new ButtonBuilder().setCustomId('ticket_buy').setLabel('Buy').setStyle(ButtonStyle.Danger).setEmoji('💰'),
       new ButtonBuilder().setCustomId('ticket_giveaway').setLabel('Giveaway Claim').setStyle(ButtonStyle.Primary).setEmoji('🎉'),
-      new ButtonBuilder().setCustomId('ticket_support').setLabel('Support').setStyle(ButtonStyle.Secondary).setEmoji('🛠️')
+      new ButtonBuilder().setCustomId('ticket_support').setLabel('Support').setStyle(ButtonStyle.Secondary).setEmoji('🛠️'),
+      new ButtonBuilder().setCustomId('ticket_inviterewards').setLabel('Invite Rewards').setStyle(ButtonStyle.Primary).setEmoji('📨')
     );
 
     await interaction.channel.send({ embeds: [embed], components: [row] });

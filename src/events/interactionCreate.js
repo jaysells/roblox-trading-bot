@@ -23,7 +23,8 @@ function sanitizeName(str) {
     .slice(0, 50) || 'user';
 }
 
-async function createTicket(interaction, type) {
+async function createTicket(interaction, type, options = {}) {
+  const { channelName: nameOverride, formFields } = options;
   await interaction.deferReply({ ephemeral: true });
 
   const userId = interaction.user.id;
@@ -33,9 +34,7 @@ async function createTicket(interaction, type) {
   if (existingChannelId) {
     const existingChannel = guild.channels.cache.get(existingChannelId);
     if (existingChannel) {
-      return interaction.editReply({
-        content: `You already have an open ${type} ticket: <#${existingChannelId}>`,
-      });
+      return interaction.editReply({ content: `You already have an open ${type} ticket: <#${existingChannelId}>` });
     }
     await redis.del(`ticket:${userId}:${type}`);
     await redis.del(`ticketchannel:${existingChannelId}`);
@@ -52,19 +51,16 @@ async function createTicket(interaction, type) {
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
         {
           id: STAFF_ROLE_ID,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ManageChannels,
-            PermissionFlagsBits.ReadMessageHistory,
-          ],
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory],
         },
       ],
     });
   }
 
+  const finalChannelName = nameOverride || `${type}-${sanitizeName(interaction.user.username)}`;
+
   const channel = await guild.channels.create({
-    name: `${type}-${sanitizeName(interaction.user.username)}`,
+    name: finalChannelName,
     type: ChannelType.GuildText,
     parent: category.id,
     topic: `${userId}:${type}`,
@@ -72,20 +68,11 @@ async function createTicket(interaction, type) {
       { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
       {
         id: userId,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.ReadMessageHistory,
-        ],
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
       },
       {
         id: STAFF_ROLE_ID,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.ManageChannels,
-          PermissionFlagsBits.ReadMessageHistory,
-        ],
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory],
       },
     ],
   });
@@ -94,12 +81,13 @@ async function createTicket(interaction, type) {
   await redis.set(`ticketchannel:${channel.id}`, `${userId}:${type}`);
 
   const typeInfo = {
-    sell: { label: 'Sell Ticket', desc: 'Sell your Roblox items for real money', color: 0x57F287 },
-    buy: { label: 'Buy Ticket', desc: 'Buy Roblox items from us for real money', color: 0xED4245 },
-    giveaway: { label: 'Giveaway Claim', desc: 'Claim your giveaway prize', color: 0x5865F2 },
-    support: { label: 'Support Ticket', desc: 'Get help or ask about anything regarding the server', color: 0x95A5A6 },
+    sell:          { label: 'Sell Ticket',       desc: 'Sell your Roblox items for real money',    color: 0x57F287 },
+    buy:           { label: 'Buy Ticket',         desc: 'Buy Roblox items from us for real money',  color: 0xED4245 },
+    giveaway:      { label: 'Giveaway Claim',     desc: 'Claim your giveaway prize',                color: 0x5865F2 },
+    support:       { label: 'Support Ticket',     desc: 'Get help or ask about anything',           color: 0x95A5A6 },
+    inviterewards: { label: 'Invite Rewards',     desc: 'Claim your invite rewards',                color: 0xF1C40F },
   };
-  const info = typeInfo[type];
+  const info = typeInfo[type] || { label: 'Ticket', desc: '', color: 0x5865F2 };
 
   const embed = new EmbedBuilder()
     .setTitle(`🎫 ${info.label}`)
@@ -108,20 +96,21 @@ async function createTicket(interaction, type) {
     .setColor(info.color)
     .setTimestamp();
 
+  const embeds = [embed];
+
+  if (formFields && formFields.length > 0) {
+    const formEmbed = new EmbedBuilder()
+      .setTitle('📋 Ticket Details')
+      .setColor(info.color)
+      .addFields(formFields.map(f => ({ name: f.label, value: f.value || 'N/A', inline: false })));
+    embeds.push(formEmbed);
+  }
+
   const closeRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('ticket_close')
-      .setLabel('Close Ticket')
-      .setStyle(ButtonStyle.Danger)
-      .setEmoji('🔒')
+    new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
   );
 
-  await channel.send({
-    content: `<@${userId}> <@&${STAFF_ROLE_ID}>`,
-    embeds: [embed],
-    components: [closeRow],
-  });
-
+  await channel.send({ content: `<@${userId}> <@&${STAFF_ROLE_ID}>`, embeds, components: [closeRow] });
   await interaction.editReply({ content: `Your ticket has been created: <#${channel.id}>` });
 }
 
@@ -129,12 +118,7 @@ async function showCloseModal(interaction) {
   const modal = new ModalBuilder().setCustomId('close_ticket_modal').setTitle('Close Ticket');
   modal.addComponents(
     new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('close_reason')
-        .setLabel('Reason for closing')
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true)
-        .setMaxLength(500)
+      new TextInputBuilder().setCustomId('close_reason').setLabel('Reason for closing').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500)
     )
   );
   await interaction.showModal(modal);
@@ -154,15 +138,58 @@ module.exports = {
       if (interaction.isButton()) {
         const { customId } = interaction;
 
-        if (['ticket_sell', 'ticket_buy', 'ticket_giveaway', 'ticket_support'].includes(customId)) {
+        if (customId === 'ticket_sell') {
+          const modal = new ModalBuilder().setCustomId('sell_ticket_modal').setTitle('Sell Ticket');
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('items').setLabel('What are you selling?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('payment').setLabel('How would you like to be paid?').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. PayPal, CashApp, Crypto')
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('roblox').setLabel('Your Roblox username').setStyle(TextInputStyle.Short).setRequired(true)
+            )
+          );
+          return interaction.showModal(modal);
+        }
+
+        if (customId === 'ticket_buy') {
+          const modal = new ModalBuilder().setCustomId('buy_ticket_modal').setTitle('Buy Ticket');
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('items').setLabel('What do you want to buy?').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(500)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('payment').setLabel('How will you pay?').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. PayPal, CashApp, Crypto')
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('roblox').setLabel('Your Roblox username').setStyle(TextInputStyle.Short).setRequired(true)
+            )
+          );
+          return interaction.showModal(modal);
+        }
+
+        if (customId === 'ticket_inviterewards') {
+          const modal = new ModalBuilder().setCustomId('inviterewards_ticket_modal').setTitle('Invite Rewards');
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('invites').setLabel('How many invites do you have?').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 10')
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('roblox').setLabel('Your Roblox username').setStyle(TextInputStyle.Short).setRequired(true)
+            )
+          );
+          return interaction.showModal(modal);
+        }
+
+        if (['ticket_giveaway', 'ticket_support'].includes(customId)) {
           return createTicket(interaction, customId.replace('ticket_', ''));
         }
 
         if (customId === 'ticket_close') {
           const ticketData = await redis.get(`ticketchannel:${interaction.channelId}`);
-          if (!ticketData) {
-            return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
-          }
+          if (!ticketData) return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
           return showCloseModal(interaction);
         }
 
@@ -177,18 +204,12 @@ module.exports = {
           if (giveaway.ended) return interaction.reply({ content: 'This giveaway has already ended.', ephemeral: true });
 
           const alreadyEntered = await redis.sismember(`giveaway:${messageId}:entries`, userId);
-          if (alreadyEntered) {
-            return interaction.reply({ content: 'You are already entered in this giveaway!', ephemeral: true });
-          }
+          if (alreadyEntered) return interaction.reply({ content: 'You are already entered in this giveaway!', ephemeral: true });
 
           await redis.sadd(`giveaway:${messageId}:entries`, userId);
           const entryCount = await redis.scard(`giveaway:${messageId}:entries`);
 
-          await interaction.reply({
-            content: `🎉 You've been entered into the **${giveaway.prize}** giveaway! Good luck!`,
-            ephemeral: true,
-          });
-
+          await interaction.reply({ content: `🎉 You've been entered into the **${giveaway.prize}** giveaway! Good luck!`, ephemeral: true });
           const updatedEmbed = buildGiveawayEmbed({ ...giveaway, entries: new Array(entryCount) });
           await interaction.message.edit({ embeds: [updatedEmbed] }).catch(() => {});
           return;
@@ -199,37 +220,69 @@ module.exports = {
       if (interaction.isModalSubmit()) {
         const { customId } = interaction;
 
+        if (customId === 'sell_ticket_modal') {
+          const items   = interaction.fields.getTextInputValue('items');
+          const payment = interaction.fields.getTextInputValue('payment');
+          const roblox  = interaction.fields.getTextInputValue('roblox');
+          return createTicket(interaction, 'sell', {
+            formFields: [
+              { label: '🛒 Items for Sale', value: items },
+              { label: '💳 Payment Method', value: payment },
+              { label: '🎮 Roblox Username', value: roblox },
+            ],
+          });
+        }
+
+        if (customId === 'buy_ticket_modal') {
+          const items   = interaction.fields.getTextInputValue('items');
+          const payment = interaction.fields.getTextInputValue('payment');
+          const roblox  = interaction.fields.getTextInputValue('roblox');
+          return createTicket(interaction, 'buy', {
+            formFields: [
+              { label: '🛒 Items to Buy', value: items },
+              { label: '💳 Payment Method', value: payment },
+              { label: '🎮 Roblox Username', value: roblox },
+            ],
+          });
+        }
+
+        if (customId === 'inviterewards_ticket_modal') {
+          const invites = interaction.fields.getTextInputValue('invites').trim();
+          const roblox  = interaction.fields.getTextInputValue('roblox').trim();
+          const channelName = `${sanitizeName(invites)}inviterewards-${sanitizeName(interaction.user.username)}`;
+          return createTicket(interaction, 'inviterewards', {
+            channelName,
+            formFields: [
+              { label: '📨 Invite Count', value: invites },
+              { label: '🎮 Roblox Username', value: roblox },
+            ],
+          });
+        }
+
         if (customId === 'close_ticket_modal') {
-          const reason = interaction.fields.getTextInputValue('close_reason');
+          const reason  = interaction.fields.getTextInputValue('close_reason');
           const channel = interaction.channel;
 
           const ticketData = await redis.get(`ticketchannel:${channel.id}`);
-          if (!ticketData) {
-            return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
-          }
+          if (!ticketData) return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
 
           const [userId, type] = ticketData.split(':');
 
           try {
             const user = await client.users.fetch(userId);
-            await user
-              .send(`Your **${type}** ticket has been closed.\n**Reason:** ${reason}`)
-              .catch(() => {});
+            await user.send(`Your **${type}** ticket has been closed.\n**Reason:** ${reason}`).catch(() => {});
           } catch {}
 
           await redis.del(`ticket:${userId}:${type}`);
           await redis.del(`ticketchannel:${channel.id}`);
 
           await interaction.reply({ content: `Ticket closing in 3 seconds...\n**Reason:** ${reason}` });
-
           setTimeout(() => channel.delete().catch(() => {}), 3000);
           return;
         }
 
         if (customId === 'rename_ticket_modal') {
-          if (!hasPermission(interaction.member)) {
-            return interaction.reply({ content: 'No permission.', ephemeral: true });
-          }
+          if (!hasPermission(interaction.member)) return interaction.reply({ content: 'No permission.', ephemeral: true });
           const newName = sanitizeName(interaction.fields.getTextInputValue('new_name'));
           await interaction.channel.setName(newName).catch(() => {});
           await interaction.reply({ content: `Channel renamed to **${newName}**`, ephemeral: true });
