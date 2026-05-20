@@ -12,9 +12,18 @@ module.exports = {
       return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
     }
 
-    const ticketData = await redis.get(`ticketchannel:${interaction.channelId}`);
+    let ticketData = await redis.get(`ticketchannel:${interaction.channelId}`);
+
+    // Fallback: if Redis key is missing, check the channel topic (format: "userId:type")
     if (!ticketData) {
-      return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
+      const topic = interaction.channel.topic;
+      if (topic && /^[0-9]+:[a-z]+$/i.test(topic)) {
+        ticketData = topic;
+        // Restore the Redis key so future lookups work
+        await redis.set(`ticketchannel:${interaction.channelId}`, ticketData);
+      } else {
+        return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
+      }
     }
 
     const modal = new ModalBuilder().setCustomId('close_ticket_modal').setTitle('Close Ticket');
