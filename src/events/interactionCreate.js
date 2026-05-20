@@ -182,8 +182,16 @@ module.exports = {
         }
 
         if (customId === 'ticket_close') {
-          const ticketData = await redis.get(`ticketchannel:${interaction.channelId}`);
-          if (!ticketData) return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
+          let ticketData = await redis.get(`ticketchannel:${interaction.channelId}`);
+          if (!ticketData) {
+            const topic = interaction.channel.topic;
+            if (topic && /^[0-9]+:[a-z]+$/i.test(topic)) {
+              ticketData = topic;
+              await redis.set(`ticketchannel:${interaction.channelId}`, ticketData);
+            } else {
+              return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
+            }
+          }
           return showCloseModal(interaction);
         }
 
@@ -253,8 +261,15 @@ module.exports = {
           const reason  = interaction.fields.getTextInputValue('close_reason');
           const channel = interaction.channel;
 
-          const ticketData = await redis.get(`ticketchannel:${channel.id}`);
-          if (!ticketData) return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
+          let ticketData = await redis.get(`ticketchannel:${channel.id}`);
+          if (!ticketData) {
+            const topic = channel.topic;
+            if (topic && /^[0-9]+:[a-z]+$/i.test(topic)) {
+              ticketData = topic;
+            } else {
+              return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
+            }
+          }
 
           const [userId, type] = ticketData.split(':');
 
