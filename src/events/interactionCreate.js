@@ -311,6 +311,12 @@ module.exports = {
           if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
           return;
         }
+
+        if (customId === 'stock_modal') {
+          const cmd = client.commands.get('stock');
+          if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
+          return;
+        }
         return;
       }
 
