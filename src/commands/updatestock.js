@@ -10,7 +10,7 @@ const {
 } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
 
-// ── Emoji constants ──────────────────────────────────────────────
+// ── Emoji constants ───────────────────────────────────────────────
 const E = {
   ps99:   '<:ps99:1500643809036472442>',
   db:     '<:db_gems:1501042581201752154>',
@@ -19,7 +19,20 @@ const E = {
   tap:    '<:tapsim:1500644044571938826>',
 };
 
-// ── Embed builders ────────────────────────────────────────────────
+// Each game has a unique title string we search for in existing embeds
+const GAME_TITLES = {
+  ps99:       'PS99 Buying Stock',
+  petsgo:     'Pets Go Buying Stock',
+  mm2:        'MM2 Buying Stock',
+  dahood:     'Da Hood Buying Stock',
+  limiteds:   'Limiteds Buying Stock',
+  deathball:  'Death Ball Buying Stock',
+  bladeball:  'Blade Ball Buying Stock',
+  gag:        'Grow a Garden Buying Stock',
+  tapsim:     'Tap Simulator Buying Stock',
+};
+
+// ── Helpers ───────────────────────────────────────────────────────
 function timestamp() {
   const now = Math.floor(Date.now() / 1000);
   return `<t:${now}:R>  ·  <t:${now}:f>`;
@@ -33,110 +46,122 @@ function baseEmbed(title, color) {
     .setTimestamp();
 }
 
-// PS99
-function buildPS99(gemsAmount, gemsRate, rapAmount, rapRate) {
+// ── Embed builders ────────────────────────────────────────────────
+function buildPS99(f1, f2, f3, f4) {
   return baseEmbed(`${E.ps99}  PS99 Buying Stock`, 0xE91E8C)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `${E.ps99}  ─── GEMS ───`, value: `> 🛒 **Buying:** \`${gemsAmount}\`\n> 💵 **Rate:** \`${gemsRate}\``, inline: false },
-      { name: `📊  ─── RAP ───`,         value: `> 🛒 **Buying:** \`${rapAmount}\`\n> 💵 **Rate:** \`${rapRate}\``,   inline: false },
+      { name: `${E.ps99}  ─── GEMS ───`, value: `> 🛒 **Buying:** \`${f1}\`\n> 💵 **Rate:** \`${f2}\``, inline: false },
+      { name: `📊  ─── RAP ───`,         value: `> 🛒 **Buying:** \`${f3}\`\n> 💵 **Rate:** \`${f4}\``, inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// Pets Go
-function buildPetsGo(gemsAmount, gemsRate, rapAmount, rapRate) {
+function buildPetsGo(f1, f2, f3, f4) {
   return baseEmbed(`${E.ps99}  Pets Go Buying Stock`, 0x00C8FF)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `${E.ps99}  ─── GEMS ───`, value: `> 🛒 **Buying:** \`${gemsAmount}\`\n> 💵 **Rate:** \`${gemsRate}\``, inline: false },
-      { name: `📊  ─── RAP ───`,         value: `> 🛒 **Buying:** \`${rapAmount}\`\n> 💵 **Rate:** \`${rapRate}\``,   inline: false },
+      { name: `${E.ps99}  ─── GEMS ───`, value: `> 🛒 **Buying:** \`${f1}\`\n> 💵 **Rate:** \`${f2}\``, inline: false },
+      { name: `📊  ─── RAP ───`,         value: `> 🛒 **Buying:** \`${f3}\`\n> 💵 **Rate:** \`${f4}\``, inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// MM2
 function buildMM2(items, rate) {
   return baseEmbed(`🔪  MM2 Buying Stock`, 0xFF4444)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `🔪  ─── ITEMS BUYING ───`, value: `${items}`, inline: false },
-      { name: `💵  ─── RATE ───`,         value: `\`${rate}\``,               inline: false },
+      { name: `🔪  ─── ITEMS BUYING ───`, value: items,          inline: false },
+      { name: `💵  ─── RATE ───`,         value: `\`${rate}\``,  inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// DaHood
 function buildDaHood(items, rate) {
   return baseEmbed(`🏙️  Da Hood Buying Stock`, 0xFF8C00)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `🏙️  ─── ITEMS BUYING ───`, value: `${items}`, inline: false },
-      { name: `💵  ─── RATE ───`,          value: `\`${rate}\``,               inline: false },
+      { name: `🏙️  ─── ITEMS BUYING ───`, value: items,          inline: false },
+      { name: `💵  ─── RATE ───`,          value: `\`${rate}\``,  inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// Limiteds
 function buildLimiteds(items, rate) {
   return baseEmbed(`👑  Limiteds Buying Stock`, 0xFFD700)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `👑  ─── LIMITEDS BUYING ───`, value: `${items}`, inline: false },
-      { name: `💵  ─── RATE ───`,            value: `\`${rate}\``,               inline: false },
+      { name: `👑  ─── LIMITEDS BUYING ───`, value: items,          inline: false },
+      { name: `💵  ─── RATE ───`,            value: `\`${rate}\``,  inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// Death Ball
-function buildDeathBall(amount, rate) {
+function buildDeathBall(f1, f2) {
   return baseEmbed(`${E.db}  Death Ball Buying Stock`, 0x8B0000)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `${E.db}  ─── TOKENS ───`, value: `> 🛒 **Buying:** \`${amount}\`\n> 💵 **Rate:** \`${rate}\``, inline: false },
+      { name: `${E.db}  ─── TOKENS ───`, value: `> 🛒 **Buying:** \`${f1}\`\n> 💵 **Rate:** \`${f2}\``, inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// Blade Ball
-function buildBladeBall(amount, rate) {
+function buildBladeBall(f1, f2) {
   return baseEmbed(`${E.bb}  Blade Ball Buying Stock`, 0x0055FF)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `${E.bb}  ─── TRADE TOKENS ───`, value: `> 🛒 **Buying:** \`${amount}\`\n> 💵 **Rate:** \`${rate}\``, inline: false },
+      { name: `${E.bb}  ─── TRADE TOKENS ───`, value: `> 🛒 **Buying:** \`${f1}\`\n> 💵 **Rate:** \`${f2}\``, inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// Grow a Garden
-function buildGAG(amount, rate) {
+function buildGAG(f1, f2) {
   return baseEmbed(`${E.gag}  Grow a Garden Buying Stock`, 0x57F287)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `${E.gag}  ─── TRADE TOKENS ───`, value: `> 🛒 **Buying:** \`${amount}\`\n> 💵 **Rate:** \`${rate}\``, inline: false },
+      { name: `${E.gag}  ─── TRADE TOKENS ───`, value: `> 🛒 **Buying:** \`${f1}\`\n> 💵 **Rate:** \`${f2}\``, inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
-// Tap Sim
-function buildTapSim(amount, rate) {
+function buildTapSim(f1, f2) {
   return baseEmbed(`${E.tap}  Tap Simulator Buying Stock`, 0x9B59B6)
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
-      { name: `${E.tap}  ─── TOKENS ───`, value: `> 🛒 **Buying:** \`${amount}\`\n> 💵 **Rate:** \`${rate}\``, inline: false },
+      { name: `${E.tap}  ─── TOKENS ───`, value: `> 🛒 **Buying:** \`${f1}\`\n> 💵 **Rate:** \`${f2}\``, inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
 
+// ── Scan channel for existing stock message ───────────────────────
+async function findExistingMessage(channel, game) {
+  const targetTitle = GAME_TITLES[game];
+  if (!targetTitle) return null;
+
+  try {
+    // Fetch up to 100 recent messages and find a bot embed matching the title
+    const messages = await channel.messages.fetch({ limit: 100 });
+    for (const msg of messages.values()) {
+      if (!msg.author.bot) continue;
+      for (const embed of msg.embeds) {
+        if (embed.title && embed.title.includes(targetTitle)) {
+          return msg;
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
 // ── Modal helpers ─────────────────────────────────────────────────
-function twoFieldModal(id, title, f1label, f1ph, f2label, f2ph) {
+function twoFieldModal(id, title, f1l, f1p, f2l, f2p) {
   const modal = new ModalBuilder().setCustomId(id).setTitle(title);
   modal.addComponents(
     new ActionRowBuilder().addComponents(
-      new TextInputBuilder().setCustomId('field1').setLabel(f1label).setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder(f1ph)
+      new TextInputBuilder().setCustomId('field1').setLabel(f1l).setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder(f1p)
     ),
     new ActionRowBuilder().addComponents(
-      new TextInputBuilder().setCustomId('field2').setLabel(f2label).setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder(f2ph)
+      new TextInputBuilder().setCustomId('field2').setLabel(f2l).setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder(f2p)
     )
   );
   return modal;
@@ -167,7 +192,7 @@ function itemsModal(id, title) {
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('items')
-        .setLabel('Items (use emojis + item names, one per line)')
+        .setLabel('Items (emoji + name, one per line)')
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
         .setPlaceholder('e.g.\n🔫 Ghostblade — Paying $5\n💎 Godly Set — Paying $20')
@@ -189,7 +214,7 @@ function itemsModal(id, title) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('updatestock')
-    .setDescription('Post a buying stock update for a game'),
+    .setDescription('Post or update a buying stock embed in this channel'),
 
   async execute(interaction) {
     if (!hasPermission(interaction.member)) {
@@ -214,109 +239,75 @@ module.exports = {
     );
 
     await interaction.reply({
-      content: '## 📋 Update Stock\nChoose which game you want to post a stock update for:',
+      content: '## 📋 Update Stock\nChoose which game to post or update:',
       components: [row],
       ephemeral: true,
     });
   },
 
+  // Store channel per pending select so the modal knows where to edit
+  _pendingChannels: new Map(),
+
   async handleSelect(interaction) {
     const game = interaction.values[0];
-    let modal;
 
+    // Remember which channel this came from so handleModal can find it
+    this._pendingChannels.set(interaction.user.id, interaction.channelId);
+
+    let modal;
     switch (game) {
-      case 'ps99':
-        modal = fourFieldModal('stock_ps99', 'PS99 Stock', 'Gems — Amount Buying', '500B', 'Gems — Rate', '$1 per 10B', 'RAP — Amount Buying', '200B RAP', 'RAP — Rate', '$1 per 5B RAP');
-        break;
-      case 'petsgo':
-        modal = fourFieldModal('stock_petsgo', 'Pets Go Stock', 'Gems — Amount Buying', '500B', 'Gems — Rate', '$1 per 10B', 'RAP — Amount Buying', '200B RAP', 'RAP — Rate', '$1 per 5B RAP');
-        break;
-      case 'mm2':
-        modal = itemsModal('stock_mm2', 'MM2 Stock');
-        break;
-      case 'dahood':
-        modal = itemsModal('stock_dahood', 'Da Hood Stock');
-        break;
-      case 'limiteds':
-        modal = itemsModal('stock_limiteds', 'Limiteds Stock');
-        break;
-      case 'deathball':
-        modal = twoFieldModal('stock_deathball', 'Death Ball Stock', 'Amount Buying', '10,000 tokens', 'Rate', '$1 per 1,000 tokens');
-        break;
-      case 'bladeball':
-        modal = twoFieldModal('stock_bladeball', 'Blade Ball Stock', 'Amount Buying', '5,000 tokens', 'Rate', '$1 per 500 tokens');
-        break;
-      case 'gag':
-        modal = twoFieldModal('stock_gag', 'Grow a Garden Stock', 'Amount Buying', '10,000 tokens', 'Rate', '$1 per 1,000 tokens');
-        break;
-      case 'tapsim':
-        modal = twoFieldModal('stock_tapsim', 'Tap Simulator Stock', 'Amount Buying', '50,000 tokens', 'Rate', '$1 per 5,000 tokens');
-        break;
-      default:
-        return interaction.reply({ content: 'Unknown game.', ephemeral: true });
+      case 'ps99':      modal = fourFieldModal('stock_ps99',      'PS99 Stock',           'Gems — Amount Buying', '500B',          'Gems — Rate',  '$1 per 10B',    'RAP — Amount Buying', '200B RAP',      'RAP — Rate',   '$1 per 5B RAP'); break;
+      case 'petsgo':    modal = fourFieldModal('stock_petsgo',    'Pets Go Stock',         'Gems — Amount Buying', '500B',          'Gems — Rate',  '$1 per 10B',    'RAP — Amount Buying', '200B RAP',      'RAP — Rate',   '$1 per 5B RAP'); break;
+      case 'mm2':       modal = itemsModal('stock_mm2',      'MM2 Stock');       break;
+      case 'dahood':    modal = itemsModal('stock_dahood',   'Da Hood Stock');   break;
+      case 'limiteds':  modal = itemsModal('stock_limiteds', 'Limiteds Stock');  break;
+      case 'deathball': modal = twoFieldModal('stock_deathball', 'Death Ball Stock',   'Amount Buying', '10,000 tokens', 'Rate', '$1 per 1,000 tokens'); break;
+      case 'bladeball': modal = twoFieldModal('stock_bladeball', 'Blade Ball Stock',   'Amount Buying', '5,000 tokens',  'Rate', '$1 per 500 tokens');   break;
+      case 'gag':       modal = twoFieldModal('stock_gag',       'Grow a Garden Stock', 'Amount Buying', '10,000 tokens', 'Rate', '$1 per 1,000 tokens'); break;
+      case 'tapsim':    modal = twoFieldModal('stock_tapsim',     'Tap Sim Stock',       'Amount Buying', '50,000 tokens', 'Rate', '$1 per 5,000 tokens'); break;
+      default: return interaction.reply({ content: 'Unknown game.', ephemeral: true });
     }
 
     await interaction.showModal(modal);
   },
 
-  async handleModal(interaction) {
+  async handleModal(interaction, client) {
     const id = interaction.customId;
+
+    // Work out which game this modal belongs to
+    const gameMap = {
+      stock_ps99: 'ps99', stock_petsgo: 'petsgo', stock_mm2: 'mm2',
+      stock_dahood: 'dahood', stock_limiteds: 'limiteds', stock_deathball: 'deathball',
+      stock_bladeball: 'bladeball', stock_gag: 'gag', stock_tapsim: 'tapsim',
+    };
+    const game = gameMap[id];
+    if (!game) return interaction.reply({ content: 'Unknown stock type.', ephemeral: true });
+
+    // Build the new embed
     let embed;
+    if (id === 'stock_ps99')      embed = buildPS99(      interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'), interaction.fields.getTextInputValue('field3'), interaction.fields.getTextInputValue('field4'));
+    if (id === 'stock_petsgo')    embed = buildPetsGo(    interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'), interaction.fields.getTextInputValue('field3'), interaction.fields.getTextInputValue('field4'));
+    if (id === 'stock_mm2')       embed = buildMM2(       interaction.fields.getTextInputValue('items'),  interaction.fields.getTextInputValue('rate'));
+    if (id === 'stock_dahood')    embed = buildDaHood(    interaction.fields.getTextInputValue('items'),  interaction.fields.getTextInputValue('rate'));
+    if (id === 'stock_limiteds')  embed = buildLimiteds(  interaction.fields.getTextInputValue('items'),  interaction.fields.getTextInputValue('rate'));
+    if (id === 'stock_deathball') embed = buildDeathBall( interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
+    if (id === 'stock_bladeball') embed = buildBladeBall( interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
+    if (id === 'stock_gag')       embed = buildGAG(       interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
+    if (id === 'stock_tapsim')    embed = buildTapSim(    interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
 
-    if (id === 'stock_ps99') {
-      embed = buildPS99(
-        interaction.fields.getTextInputValue('field1'),
-        interaction.fields.getTextInputValue('field2'),
-        interaction.fields.getTextInputValue('field3'),
-        interaction.fields.getTextInputValue('field4')
-      );
-    } else if (id === 'stock_petsgo') {
-      embed = buildPetsGo(
-        interaction.fields.getTextInputValue('field1'),
-        interaction.fields.getTextInputValue('field2'),
-        interaction.fields.getTextInputValue('field3'),
-        interaction.fields.getTextInputValue('field4')
-      );
-    } else if (id === 'stock_mm2') {
-      embed = buildMM2(
-        interaction.fields.getTextInputValue('items'),
-        interaction.fields.getTextInputValue('rate')
-      );
-    } else if (id === 'stock_dahood') {
-      embed = buildDaHood(
-        interaction.fields.getTextInputValue('items'),
-        interaction.fields.getTextInputValue('rate')
-      );
-    } else if (id === 'stock_limiteds') {
-      embed = buildLimiteds(
-        interaction.fields.getTextInputValue('items'),
-        interaction.fields.getTextInputValue('rate')
-      );
-    } else if (id === 'stock_deathball') {
-      embed = buildDeathBall(
-        interaction.fields.getTextInputValue('field1'),
-        interaction.fields.getTextInputValue('field2')
-      );
-    } else if (id === 'stock_bladeball') {
-      embed = buildBladeBall(
-        interaction.fields.getTextInputValue('field1'),
-        interaction.fields.getTextInputValue('field2')
-      );
-    } else if (id === 'stock_gag') {
-      embed = buildGAG(
-        interaction.fields.getTextInputValue('field1'),
-        interaction.fields.getTextInputValue('field2')
-      );
-    } else if (id === 'stock_tapsim') {
-      embed = buildTapSim(
-        interaction.fields.getTextInputValue('field1'),
-        interaction.fields.getTextInputValue('field2')
-      );
+    // Resolve channel — use saved channel from select, fall back to current
+    const channelId = this._pendingChannels.get(interaction.user.id) || interaction.channelId;
+    this._pendingChannels.delete(interaction.user.id);
+    const channel = client.channels.cache.get(channelId) || interaction.channel;
+
+    // Try to find and edit an existing stock message
+    const existing = await findExistingMessage(channel, game);
+    if (existing) {
+      await existing.edit({ embeds: [embed] });
+      await interaction.reply({ content: '✅ Stock updated!', ephemeral: true });
     } else {
-      return interaction.reply({ content: 'Unknown stock type.', ephemeral: true });
+      await channel.send({ embeds: [embed] });
+      await interaction.reply({ content: '✅ Stock posted!', ephemeral: true });
     }
-
-    await interaction.channel.send({ embeds: [embed] });
-    await interaction.reply({ content: '✅ Stock posted!', ephemeral: true });
   },
 };
