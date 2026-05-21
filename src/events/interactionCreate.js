@@ -317,12 +317,22 @@ module.exports = {
           if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
           return;
         }
+
+        if (customId.startsWith('stock_')) {
+          const cmd = client.commands.get('updatestock');
+          if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
+          return;
+        }
         return;
       }
 
       if (interaction.isStringSelectMenu()) {
         if (interaction.customId === 'reroll_select') {
           const cmd = client.commands.get('reroll');
+          if (cmd && cmd.handleSelect) return cmd.handleSelect(interaction, client);
+        }
+        if (interaction.customId === 'updatestock_select') {
+          const cmd = client.commands.get('updatestock');
           if (cmd && cmd.handleSelect) return cmd.handleSelect(interaction, client);
         }
       }
