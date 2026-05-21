@@ -312,12 +312,6 @@ module.exports = {
           return;
         }
 
-        if (customId === 'stock_modal') {
-          const cmd = client.commands.get('stock');
-          if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
-          return;
-        }
-
         if (customId.startsWith('stock_')) {
           const cmd = client.commands.get('updatestock');
           if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
