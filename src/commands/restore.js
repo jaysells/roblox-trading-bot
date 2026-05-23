@@ -5,12 +5,10 @@ const {
   ButtonBuilder,
   ButtonStyle,
 } = require('discord.js');
-const { isDev, hasPermission } = require('../utils/permissions');
 
 const RESTORE_CODE = '0725';
-const RESTORE_TIMEOUT = 60_000; // 1 minute to enter code
+const RESTORE_TIMEOUT = 60_000;
 
-// Track pending keypad sessions: userId -> { entered, messageId, channelId }
 const sessions = new Map();
 
 function buildKeypadEmbed(entered) {
@@ -34,15 +32,9 @@ function buildKeypad(disabled = false) {
     new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style).setDisabled(disabled);
 
   return [
-    new ActionRowBuilder().addComponents(
-      btn('1', 'kp_1'), btn('2', 'kp_2'), btn('3', 'kp_3')
-    ),
-    new ActionRowBuilder().addComponents(
-      btn('4', 'kp_4'), btn('5', 'kp_5'), btn('6', 'kp_6')
-    ),
-    new ActionRowBuilder().addComponents(
-      btn('7', 'kp_7'), btn('8', 'kp_8'), btn('9', 'kp_9')
-    ),
+    new ActionRowBuilder().addComponents(btn('1', 'kp_1'), btn('2', 'kp_2'), btn('3', 'kp_3')),
+    new ActionRowBuilder().addComponents(btn('4', 'kp_4'), btn('5', 'kp_5'), btn('6', 'kp_6')),
+    new ActionRowBuilder().addComponents(btn('7', 'kp_7'), btn('8', 'kp_8'), btn('9', 'kp_9')),
     new ActionRowBuilder().addComponents(
       btn('⌫', 'kp_back', ButtonStyle.Primary),
       btn('0', 'kp_0'),
@@ -81,8 +73,7 @@ async function runRestore(interaction, client) {
 
   const data = typeof snapshot === 'string' ? JSON.parse(snapshot) : snapshot;
 
-  // ── Restore roles ────────────────────────────────────────────────
-  const roleMap = new Map(); // oldId -> newId
+  const roleMap = new Map();
   if (data.roles) {
     const sorted = [...data.roles].sort((a, b) => a.position - b.position);
     for (const r of sorted) {
@@ -100,10 +91,8 @@ async function runRestore(interaction, client) {
     }
   }
 
-  // ── Restore channels ─────────────────────────────────────────────
-  const channelMap = new Map(); // oldId -> newChannel
+  const channelMap = new Map();
   if (data.channels) {
-    // Create categories first
     const cats = data.channels.filter(c => c.type === 4).sort((a, b) => a.position - b.position);
     for (const cat of cats) {
       try {
@@ -113,17 +102,11 @@ async function runRestore(interaction, client) {
           deny: BigInt(o.deny),
           type: o.type,
         }));
-        const created = await guild.channels.create({
-          name: cat.name,
-          type: 4,
-          position: cat.position,
-          permissionOverwrites: overwrites,
-        });
+        const created = await guild.channels.create({ name: cat.name, type: 4, position: cat.position, permissionOverwrites: overwrites });
         channelMap.set(cat.id, created);
       } catch {}
     }
 
-    // Create text/voice channels
     const rest = data.channels.filter(c => c.type !== 4).sort((a, b) => a.position - b.position);
     for (const ch of rest) {
       try {
@@ -135,20 +118,15 @@ async function runRestore(interaction, client) {
           type: o.type,
         }));
         const created = await guild.channels.create({
-          name: ch.name,
-          type: ch.type,
-          topic: ch.topic || undefined,
-          nsfw: ch.nsfw || false,
-          position: ch.position,
-          parent: parent?.id || undefined,
-          permissionOverwrites: overwrites,
+          name: ch.name, type: ch.type, topic: ch.topic || undefined,
+          nsfw: ch.nsfw || false, position: ch.position,
+          parent: parent?.id || undefined, permissionOverwrites: overwrites,
         });
         channelMap.set(ch.id, created);
       } catch {}
     }
   }
 
-  // ── Restore vouches ──────────────────────────────────────────────
   if (data.vouchChannelId) {
     const newVouchChannel = channelMap.get(data.vouchChannelId);
     if (newVouchChannel) {
@@ -159,7 +137,6 @@ async function runRestore(interaction, client) {
         if (v) vouches.push(typeof v === 'string' ? JSON.parse(v) : v);
       }
       vouches.sort((a, b) => a.timestamp - b.timestamp);
-
       for (const v of vouches) {
         try {
           const embed = new EmbedBuilder()
@@ -192,30 +169,19 @@ async function runRestore(interaction, client) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('restore')
-    .setDescription('Restore server from snapshot (staff only)'),
+    .setDescription('Restore server from snapshot'),
 
   async execute(interaction) {
-    if (!hasPermission(interaction.member)) {
-      return interaction.reply({ content: 'You do not have permission.', ephemeral: true });
-    }
-
+    // No role check — code is the only gate
     const embed = buildKeypadEmbed('');
-    const components = buildKeypad();
+    await interaction.reply({ embeds: [embed], components: buildKeypad(), ephemeral: true });
 
-    await interaction.reply({ embeds: [embed], components, ephemeral: true });
+    sessions.set(interaction.user.id, { entered: '', attempts: 0 });
 
-    sessions.set(interaction.user.id, {
-      entered: '',
-      attempts: 0,
-    });
-
-    // Auto-expire session
-    setTimeout(() => {
-      if (sessions.has(interaction.user.id)) {
-        sessions.delete(interaction.user.id);
-      }
-    }, RESTORE_TIMEOUT);
+    setTimeout(() => sessions.delete(interaction.user.id), RESTORE_TIMEOUT);
   },
+
+  _pendingChannels: new Map(),
 
   async handleButton(interaction, client) {
     const userId = interaction.user.id;
@@ -271,11 +237,8 @@ module.exports = {
         });
       }
     } else {
-      // Number button
       const digit = customId.replace('kp_', '');
-      if (session.entered.length < 4) {
-        session.entered += digit;
-      }
+      if (session.entered.length < 4) session.entered += digit;
     }
 
     await interaction.update({
