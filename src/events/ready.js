@@ -1,3 +1,6 @@
+const { AUTO_ROLE_ID } = require('../utils/permissions');
+const { resumeGiveaways } = require('../utils/giveawayManager');
+
 const KEEPALIVE_CHANNELS = [
   '1499195096447582228',
   '1499198119999705119',
@@ -23,11 +26,10 @@ module.exports = {
   once: true,
   async execute(client) {
     console.log(`Logged in as ${client.user.tag}`);
+    console.log(`Client ID: ${client.user.id}`);
 
+    // Start keepalive loop
     setInterval(() => ping(client), INTERVAL_MS);
-
-    const { resumeGiveaways } = require('../utils/giveawayManager');
-    const { AUTO_ROLE_ID } = require('../utils/permissions');
 
     await resumeGiveaways(client);
 
