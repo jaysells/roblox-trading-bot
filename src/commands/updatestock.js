@@ -30,6 +30,7 @@ const GAME_TITLES = {
   bladeball:  'Blade Ball Buying Stock',
   gag:        'Grow a Garden Buying Stock',
   tapsim:     'Tap Simulator Buying Stock',
+  robux:      'Robux Selling Stock',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -129,6 +130,19 @@ function buildTapSim(f1, f2) {
     .setDescription('> We are currently **open** and buying!\n> Open a ticket to sell.\n\u200b')
     .addFields(
       { name: `${E.tap}  ─── TOKENS ───`, value: `> 🛒 **Buying:** \`${f1}\`\n> 💵 **Rate:** \`${f2}\``, inline: false },
+      { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
+    );
+}
+
+function buildRobux(amount, rate) {
+  return baseEmbed(`💰  Robux Selling Stock`, 0x00B06B)
+    .setDescription(
+      '> We are currently **selling** Robux!\n' +
+      '> ⚠️ **We do NOT cover tax — buyer pays tax.**\n' +
+      '> Open a ticket to buy.\n\u200b'
+    )
+    .addFields(
+      { name: `💰  ─── SELLING ───`, value: `> 📦 **Amount:** \`${amount}\`\n> 💵 **Rate:** \`${rate}\``, inline: false },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
@@ -234,7 +248,8 @@ module.exports = {
           new StringSelectMenuOptionBuilder().setLabel('Death Ball').setDescription('Death Ball gems').setValue('deathball').setEmoji({ id: '1501042581201752154', name: 'db_gems' }),
           new StringSelectMenuOptionBuilder().setLabel('Blade Ball').setDescription('Blade Ball trade tokens').setValue('bladeball').setEmoji({ id: '1500680956296822835', name: 'bb' }),
           new StringSelectMenuOptionBuilder().setLabel('Grow a Garden').setDescription('Grow a Garden trade tokens').setValue('gag').setEmoji({ id: '1500681045597753364', name: 'gag' }),
-          new StringSelectMenuOptionBuilder().setLabel('Tap Simulator').setDescription('Tap Simulator tokens').setValue('tapsim').setEmoji({ id: '1500644044571938826', name: 'tapsim' })
+          new StringSelectMenuOptionBuilder().setLabel('Tap Simulator').setDescription('Tap Simulator tokens').setValue('tapsim').setEmoji({ id: '1500644044571938826', name: 'tapsim' }),
+          new StringSelectMenuOptionBuilder().setLabel('Robux').setDescription('Selling Robux — buyer pays tax').setValue('robux').setEmoji('💰')
         )
     );
 
@@ -265,6 +280,7 @@ module.exports = {
       case 'bladeball': modal = twoFieldModal('stock_bladeball', 'Blade Ball Stock',   'Amount Buying', '5,000 tokens',  'Rate', '$1 per 500 tokens');   break;
       case 'gag':       modal = twoFieldModal('stock_gag',       'Grow a Garden Stock', 'Amount Buying', '10,000 tokens', 'Rate', '$1 per 1,000 tokens'); break;
       case 'tapsim':    modal = twoFieldModal('stock_tapsim',     'Tap Sim Stock',       'Amount Buying', '50,000 tokens', 'Rate', '$1 per 5,000 tokens'); break;
+      case 'robux':     modal = twoFieldModal('stock_robux',      'Robux Stock',         'Amount Selling', 'e.g. 10,000 Robux', 'Rate', 'e.g. $1 per 100 Robux'); break;
       default: return interaction.reply({ content: 'Unknown game.', ephemeral: true });
     }
 
@@ -278,7 +294,7 @@ module.exports = {
     const gameMap = {
       stock_ps99: 'ps99', stock_petsgo: 'petsgo', stock_mm2: 'mm2',
       stock_dahood: 'dahood', stock_limiteds: 'limiteds', stock_deathball: 'deathball',
-      stock_bladeball: 'bladeball', stock_gag: 'gag', stock_tapsim: 'tapsim',
+      stock_bladeball: 'bladeball', stock_gag: 'gag', stock_tapsim: 'tapsim', stock_robux: 'robux',
     };
     const game = gameMap[id];
     if (!game) return interaction.reply({ content: 'Unknown stock type.', ephemeral: true });
@@ -294,6 +310,7 @@ module.exports = {
     if (id === 'stock_bladeball') embed = buildBladeBall( interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
     if (id === 'stock_gag')       embed = buildGAG(       interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
     if (id === 'stock_tapsim')    embed = buildTapSim(    interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
+    if (id === 'stock_robux')     embed = buildRobux(     interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
 
     // Resolve channel — use saved channel from select, fall back to current
     const channelId = this._pendingChannels.get(interaction.user.id) || interaction.channelId;
