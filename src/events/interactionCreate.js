@@ -195,6 +195,13 @@ module.exports = {
           return showCloseModal(interaction);
         }
 
+        // Restore keypad buttons
+        if (customId.startsWith('kp_')) {
+          const cmd = client.commands.get('restore');
+          if (cmd && cmd.handleButton) return cmd.handleButton(interaction, client);
+          return;
+        }
+
         if (customId === 'giveaway_enter') {
           const messageId = interaction.message.id;
           const userId = interaction.user.id;
