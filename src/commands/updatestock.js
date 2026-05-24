@@ -134,7 +134,7 @@ function buildTapSim(f1, f2) {
     );
 }
 
-function buildRobux(amount, rate) {
+function buildRobux(normAmount, normRate, delivery, igAmount, igRate) {
   return baseEmbed(`💰  Robux Selling Stock`, 0x00B06B)
     .setDescription(
       '> We are currently **selling** Robux!\n' +
@@ -142,7 +142,16 @@ function buildRobux(amount, rate) {
       '> Open a ticket to buy.\n\u200b'
     )
     .addFields(
-      { name: `💰  ─── SELLING ───`, value: `> 📦 **Amount:** \`${amount}\`\n> 💵 **Rate:** \`${rate}\``, inline: false },
+      {
+        name: `💰  ─── NORMAL ROBUX ───`,
+        value: `> 📦 **Amount:** \`${normAmount}\`\n> 💵 **Rate:** \`${normRate}\`\n> 🚚 **Delivery:** \`${delivery}\``,
+        inline: false
+      },
+      {
+        name: `🎮  ─── IN-GAME ROBUX ───`,
+        value: `> 📦 **Amount:** \`${igAmount}\`\n> 💵 **Rate:** \`${igRate}\`\n> 🚚 **Delivery:** \`${delivery}\``,
+        inline: false
+      },
       { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
     );
 }
@@ -280,7 +289,28 @@ module.exports = {
       case 'bladeball': modal = twoFieldModal('stock_bladeball', 'Blade Ball Stock',   'Amount Buying', '5,000 tokens',  'Rate', '$1 per 500 tokens');   break;
       case 'gag':       modal = twoFieldModal('stock_gag',       'Grow a Garden Stock', 'Amount Buying', '10,000 tokens', 'Rate', '$1 per 1,000 tokens'); break;
       case 'tapsim':    modal = twoFieldModal('stock_tapsim',     'Tap Sim Stock',       'Amount Buying', '50,000 tokens', 'Rate', '$1 per 5,000 tokens'); break;
-      case 'robux':     modal = twoFieldModal('stock_robux',      'Robux Stock',         'Amount Selling', 'e.g. 10,000 Robux', 'Rate', 'e.g. $1 per 100 Robux'); break;
+      case 'robux': {
+        const m = new ModalBuilder().setCustomId('stock_robux').setTitle('Robux Stock');
+        m.addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('field1').setLabel('Normal Robux — Amount Selling').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 10,000 Robux')
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('field2').setLabel('Normal Robux — Rate').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. $1 per 100 Robux')
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('field3').setLabel('Normal Robux — Delivery Method').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. Gamepass, Group Funds')
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('field4').setLabel('In-Game Robux — Amount Selling').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. 5,000 Robux')
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder().setCustomId('field5').setLabel('In-Game Robux — Rate').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. $1 per 80 Robux')
+          )
+        );
+        modal = m;
+        break;
+      }
       default: return interaction.reply({ content: 'Unknown game.', ephemeral: true });
     }
 
@@ -310,7 +340,13 @@ module.exports = {
     if (id === 'stock_bladeball') embed = buildBladeBall( interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
     if (id === 'stock_gag')       embed = buildGAG(       interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
     if (id === 'stock_tapsim')    embed = buildTapSim(    interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
-    if (id === 'stock_robux')     embed = buildRobux(     interaction.fields.getTextInputValue('field1'), interaction.fields.getTextInputValue('field2'));
+    if (id === 'stock_robux')     embed = buildRobux(
+      interaction.fields.getTextInputValue('field1'),
+      interaction.fields.getTextInputValue('field2'),
+      interaction.fields.getTextInputValue('field3'),
+      interaction.fields.getTextInputValue('field4'),
+      interaction.fields.getTextInputValue('field5')
+    );
 
     // Resolve channel — use saved channel from select, fall back to current
     const channelId = this._pendingChannels.get(interaction.user.id) || interaction.channelId;
