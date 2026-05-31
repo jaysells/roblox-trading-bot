@@ -4,9 +4,10 @@ const { resumeGiveaways } = require('../utils/giveawayManager');
 const KEEPALIVE_CHANNELS = [
   '1499195096447582228',
   '1499198119999705119',
-  '1504306277986074795',
+  '1510532722844631040',
+  '1510154600072745121',
 ];
-const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const INTERVAL_MS = 90 * 60 * 1000; // 1.5 hours
 
 async function ping(client) {
   for (const channelId of KEEPALIVE_CHANNELS) {
@@ -28,7 +29,6 @@ module.exports = {
     console.log(`Logged in as ${client.user.tag}`);
     console.log(`Client ID: ${client.user.id}`);
 
-    // Start keepalive loop
     setInterval(() => ping(client), INTERVAL_MS);
 
     await resumeGiveaways(client);
