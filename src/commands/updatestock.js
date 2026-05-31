@@ -12,11 +12,13 @@ const { hasPermission } = require('../utils/permissions');
 
 // ── Emoji constants ───────────────────────────────────────────────
 const E = {
-  ps99:   '<:ps99:1500643809036472442>',
-  db:     '<:db_gems:1501042581201752154>',
-  bb:     '<:bb:1500680956296822835>',
-  gag:    '<:gag:1500681045597753364>',
-  tap:    '<:tapsim:1500644044571938826>',
+  ps99:     '<:ps99:1500643809036472442>',
+  db:       '<:db_gems:1501042581201752154>',
+  bb:       '<:bb:1500680956296822835>',
+  gag:      '<:gag:1500681045597753364>',
+  tap:      '<:tapsim:1500644044571938826>',
+  spawner:  '<:spawner:1510534341124558888>',
+  money:    '<a:money_:1510534554065178744>',
 };
 
 // Each game has a unique title string we search for in existing embeds
@@ -31,6 +33,8 @@ const GAME_TITLES = {
   gag:        'Grow a Garden Buying Stock',
   tapsim:     'Tap Simulator Buying Stock',
   robux:      'Robux Selling Stock',
+  donutmoney: 'DonutSMP Buying Stock',
+  donutskelly: 'DonutSMP Skelly Buying Stock',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -156,7 +160,47 @@ function buildRobux(normAmount, normRate, delivery, igAmount, igRate) {
     );
 }
 
-// ── Scan channel for existing stock message ───────────────────────
+function buildDonutMoney(moneyAmount, moneyRate, skellyAmount, skellyRate) {
+  return baseEmbed(`${E.money}  DonutSMP Buying Stock`, 0xF4A223)
+    .setDescription(
+      `> ${E.money} ${E.spawner} We are currently **buying** DonutSMP items!\n` +
+      `> Open a ticket to sell.\n\u200b`
+    )
+    .addFields(
+      {
+        name: `${E.money}  ─── IN-GAME MONEY ───`,
+        value: `> 🛒 **Buying:** \`${moneyAmount}\`\n> 💵 **Rate:** \`${moneyRate}\``,
+        inline: false,
+      },
+      {
+        name: `${E.spawner}  ─── SKELLYS ───`,
+        value: `> 🛒 **Buying:** \`${skellyAmount}\`\n> 💵 **Rate:** \`${skellyRate}\``,
+        inline: false,
+      },
+      { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
+    );
+}
+
+function buildDonutSkelly(budget, pricePerSpawner) {
+  return baseEmbed(`${E.spawner}  DonutSMP Skelly Buying Stock`, 0x9B59B6)
+    .setDescription(
+      `> ${E.spawner} 💀 ☠️ 🦴 👻 We are **buying Skelly Spawners**!\n` +
+      `> Pay with **in-game money** · Open a ticket to sell.\n\u200b`
+    )
+    .addFields(
+      {
+        name: `${E.money}  ─── BUDGET ───`,
+        value: `> ${E.money} **Money to Spend:** \`${budget}\``,
+        inline: false,
+      },
+      {
+        name: `${E.spawner}  ─── PRICE PER SPAWNER ───`,
+        value: `> ${E.spawner} **Paying:** \`${pricePerSpawner}\` per spawner`,
+        inline: false,
+      },
+      { name: '\u200b', value: `🕒 **Last Updated:** ${timestamp()}`, inline: false }
+    );
+}
 async function findExistingMessage(channel, game) {
   const targetTitle = GAME_TITLES[game];
   if (!targetTitle) return null;
@@ -258,7 +302,9 @@ module.exports = {
           new StringSelectMenuOptionBuilder().setLabel('Blade Ball').setDescription('Blade Ball trade tokens').setValue('bladeball').setEmoji({ id: '1500680956296822835', name: 'bb' }),
           new StringSelectMenuOptionBuilder().setLabel('Grow a Garden').setDescription('Grow a Garden trade tokens').setValue('gag').setEmoji({ id: '1500681045597753364', name: 'gag' }),
           new StringSelectMenuOptionBuilder().setLabel('Tap Simulator').setDescription('Tap Simulator tokens').setValue('tapsim').setEmoji({ id: '1500644044571938826', name: 'tapsim' }),
-          new StringSelectMenuOptionBuilder().setLabel('Robux').setDescription('Selling Robux — buyer pays tax').setValue('robux').setEmoji('💰')
+          new StringSelectMenuOptionBuilder().setLabel('Robux').setDescription('Selling Robux — buyer pays tax').setValue('robux').setEmoji('💰'),
+          new StringSelectMenuOptionBuilder().setLabel('DonutSMP — Money & Skellys').setDescription('Buying in-game money and skellys').setValue('donutmoney').setEmoji({ id: '1510534554065178744', name: 'money_' }),
+          new StringSelectMenuOptionBuilder().setLabel('DonutSMP — Skelly Spawners').setDescription('Buying skelly spawners with in-game money').setValue('donutskelly').setEmoji({ id: '1510534341124558888', name: 'spawner' })
         )
     );
 
@@ -289,7 +335,8 @@ module.exports = {
       case 'bladeball': modal = twoFieldModal('stock_bladeball', 'Blade Ball Stock',   'Amount Buying', '5,000 tokens',  'Rate', '$1 per 500 tokens');   break;
       case 'gag':       modal = twoFieldModal('stock_gag',       'Grow a Garden Stock', 'Amount Buying', '10,000 tokens', 'Rate', '$1 per 1,000 tokens'); break;
       case 'tapsim':    modal = twoFieldModal('stock_tapsim',     'Tap Sim Stock',       'Amount Buying', '50,000 tokens', 'Rate', '$1 per 5,000 tokens'); break;
-      case 'robux': {
+      case 'donutmoney': modal = fourFieldModal('stock_donutmoney', 'DonutSMP Stock', 'Money — Amount Buying', 'e.g. $500M', 'Money — Rate', 'e.g. $1 per 10M', 'Skellys — Amount Buying', 'e.g. 50 skellys', 'Skellys — Rate', 'e.g. $1 per skelly'); break;
+      case 'donutskelly': modal = twoFieldModal('stock_donutskelly', 'DonutSMP Skelly Spawners', 'Budget (in-game money to spend)', 'e.g. $500M in-game', 'Price Per Spawner', 'e.g. $10M per spawner'); break;
         const m = new ModalBuilder().setCustomId('stock_robux').setTitle('Robux Stock');
         m.addComponents(
           new ActionRowBuilder().addComponents(
@@ -325,6 +372,7 @@ module.exports = {
       stock_ps99: 'ps99', stock_petsgo: 'petsgo', stock_mm2: 'mm2',
       stock_dahood: 'dahood', stock_limiteds: 'limiteds', stock_deathball: 'deathball',
       stock_bladeball: 'bladeball', stock_gag: 'gag', stock_tapsim: 'tapsim', stock_robux: 'robux',
+      stock_donutmoney: 'donutmoney', stock_donutskelly: 'donutskelly',
     };
     const game = gameMap[id];
     if (!game) return interaction.reply({ content: 'Unknown stock type.', ephemeral: true });
@@ -346,6 +394,16 @@ module.exports = {
       interaction.fields.getTextInputValue('field3'),
       interaction.fields.getTextInputValue('field4'),
       interaction.fields.getTextInputValue('field5')
+    );
+    if (id === 'stock_donutmoney')  embed = buildDonutMoney(
+      interaction.fields.getTextInputValue('field1'),
+      interaction.fields.getTextInputValue('field2'),
+      interaction.fields.getTextInputValue('field3'),
+      interaction.fields.getTextInputValue('field4')
+    );
+    if (id === 'stock_donutskelly') embed = buildDonutSkelly(
+      interaction.fields.getTextInputValue('field1'),
+      interaction.fields.getTextInputValue('field2')
     );
 
     // Resolve channel — use saved channel from select, fall back to current
