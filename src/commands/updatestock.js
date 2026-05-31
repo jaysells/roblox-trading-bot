@@ -337,6 +337,7 @@ module.exports = {
       case 'tapsim':    modal = twoFieldModal('stock_tapsim',     'Tap Sim Stock',       'Amount Buying', '50,000 tokens', 'Rate', '$1 per 5,000 tokens'); break;
       case 'donutmoney': modal = fourFieldModal('stock_donutmoney', 'DonutSMP Stock', 'Money — Amount Buying', 'e.g. $500M', 'Money — Rate', 'e.g. $1 per 10M', 'Skellys — Amount Buying', 'e.g. 50 skellys', 'Skellys — Rate', 'e.g. $1 per skelly'); break;
       case 'donutskelly': modal = twoFieldModal('stock_donutskelly', 'DonutSMP Skelly Spawners', 'Budget (in-game money to spend)', 'e.g. $500M in-game', 'Price Per Spawner', 'e.g. $10M per spawner'); break;
+      case 'robux': {
         const m = new ModalBuilder().setCustomId('stock_robux').setTitle('Robux Stock');
         m.addComponents(
           new ActionRowBuilder().addComponents(
