@@ -15,13 +15,10 @@ module.exports = {
     }
 
     const channel = interaction.guild.channels.cache.get(VOUCH_CHANNEL_ID);
-    if (!channel) {
-      return interaction.reply({ content: 'Vouch channel not found.', ephemeral: true });
-    }
+    if (!channel) return interaction.reply({ content: 'Vouch channel not found.', ephemeral: true });
 
     await interaction.deferReply({ ephemeral: true });
 
-    // Fetch all messages oldest first
     let allMessages = [];
     let lastId = null;
 
@@ -35,10 +32,7 @@ module.exports = {
       if (batch.size < 100) break;
     }
 
-    // Sort oldest first
     allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-
-    // Filter out bot messages (already formatted embeds)
     const userMessages = allMessages.filter(m => !m.author.bot);
 
     await interaction.editReply({ content: `Found **${userMessages.length}** messages to reformat. Starting...` });
@@ -46,22 +40,50 @@ module.exports = {
     let done = 0;
     for (const msg of userMessages) {
       try {
-        const embed = new EmbedBuilder()
-          .setColor(0x57F287)
-          .setAuthor({
-            name: msg.author.username,
-            iconURL: msg.author.displayAvatarURL({ dynamic: true }),
-          })
-          .setDescription(msg.content || '*(no text)*')
-          .setTimestamp(msg.createdAt)
-          .setFooter({ text: 'Limited Hub' });
+        const isForward = msg.messageSnapshots && msg.messageSnapshots.size > 0;
+        let embed;
 
-        // Save to Redis
+        if (isForward) {
+          const snapshot = msg.messageSnapshots.first();
+          const content = snapshot?.content || '*(no text)*';
+
+          let sourceInfo = '*(unknown server)*';
+          if (msg.reference?.guildId) {
+            try {
+              const sourceGuild = await interaction.client.guilds.fetch(msg.reference.guildId).catch(() => null);
+              if (sourceGuild) sourceInfo = sourceGuild.name;
+            } catch {}
+          }
+
+          embed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setAuthor({
+              name: msg.author.username,
+              iconURL: msg.author.displayAvatarURL({ dynamic: true }),
+            })
+            .setDescription(content)
+            .addFields({ name: '📨 Forwarded from', value: sourceInfo, inline: true })
+            .setTimestamp(msg.createdAt)
+            .setFooter({ text: 'Limited Hub · Forwarded Message' });
+        } else {
+          embed = new EmbedBuilder()
+            .setColor(0x57F287)
+            .setAuthor({
+              name: msg.author.username,
+              iconURL: msg.author.displayAvatarURL({ dynamic: true }),
+            })
+            .setDescription(msg.content || '*(no text)*')
+            .setTimestamp(msg.createdAt)
+            .setFooter({ text: 'Limited Hub' });
+        }
+
         await redis.set(`vouch:${msg.id}`, JSON.stringify({
           id: msg.id,
           userId: msg.author.id,
           username: msg.author.tag,
-          content: msg.content || '(no text)',
+          content: isForward
+            ? `[Forwarded] ${msg.messageSnapshots?.first()?.content || '(no text)'}`
+            : (msg.content || '(no text)'),
           timestamp: msg.createdTimestamp,
           attachments: [...msg.attachments.values()].map(a => a.url),
         }));
@@ -70,7 +92,6 @@ module.exports = {
         await channel.send({ embeds: [embed] });
         done++;
 
-        // Small delay to avoid rate limits
         await new Promise(r => setTimeout(r, 500));
       } catch (e) {
         console.error(`Failed to reformat vouch ${msg.id}:`, e.message);
