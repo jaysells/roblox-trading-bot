@@ -4,7 +4,6 @@ const {
   StringSelectMenuBuilder,
 } = require('discord.js');
 const redis = require('./redis');
-const { syncStock } = require('./capeShop');
 
 const LOG_CHANNEL_ID = '1524672603585904742';
 const POLL_INTERVAL  = 20_000;
@@ -48,6 +47,15 @@ async function getLTCPrice() {
   }
 
   throw new Error('All LTC price APIs failed');
+}
+
+// Defined locally to avoid circular dependency with capeShop.js
+async function syncStock(capeId) {
+  const raw = await redis.get(`cape:${capeId}`);
+  if (!raw) return;
+  const cape = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  cape.stock = await redis.llen(`cape:${capeId}:codes`);
+  await redis.set(`cape:${capeId}`, JSON.stringify(cape));
 }
 
 async function getAddressTxs(address) {
@@ -126,7 +134,6 @@ async function completePurchase(client, userId, pending, txHash) {
 
   const codes = pending.reservedCodes || [];
 
-  // DM user
   try {
     const user = await client.users.fetch(userId);
     if (codes.length > 0) {
@@ -137,7 +144,6 @@ async function completePurchase(client, userId, pending, txHash) {
     }
   } catch {}
 
-  // Log
   const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
   if (logChannel) {
     const embed = new EmbedBuilder()
@@ -174,7 +180,6 @@ async function checkPendingPayments(client) {
     const pending = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const userId  = key.replace('ltc:pending:', '');
 
-    // Expired and not yet detected — cancel and return codes
     if (Date.now() > pending.expiresAt && !pending.detectedTxHash) {
       try {
         const user = await client.users.fetch(userId);
@@ -191,7 +196,6 @@ async function checkPendingPayments(client) {
       continue;
     }
 
-    // Already matched a tx — just check confirmations
     if (pending.detectedTxHash) {
       const tx = txs.find(t => t.hash === pending.detectedTxHash);
       if (tx && (tx.confirmations || 0) >= 1) {
@@ -203,20 +207,17 @@ async function checkPendingPayments(client) {
     const expectedLitoshis = Math.round(pending.totalLTC * 1e8);
     const createdAt        = pending.createdAt || (pending.expiresAt - 3 * 60 * 1000);
 
-    // Match by buyer's wallet address (input) sending to our address (output)
     for (const tx of txs) {
       if (await redis.get(`ltc:seen:${tx.hash}`)) continue;
 
-      // Skip txs that existed before this checkout was created
       const txTime = tx.received ? new Date(tx.received).getTime() : Date.now();
-      if (txTime < createdAt - 60_000) continue; // 1-min grace window
+      if (txTime < createdAt - 60_000) continue;
 
       const fromBuyer = (tx.inputs || []).some(inp =>
         inp.addresses && inp.addresses.includes(pending.buyerLtcAddress)
       );
       if (!fromBuyer) continue;
 
-      // Find output going to us and verify amount is within 20% of expected
       const outputToUs = (tx.outputs || []).find(out =>
         out.addresses && out.addresses.includes(ltcAddress)
       );
@@ -243,4 +244,4 @@ function startPoller(client) {
   console.log('[LTC Poller] Started.');
 }
 
-module.exports = { startPoller, getLTCPrice };
+module.exports = { startPoller, getLTCPrice, updateCapeStockMessage };

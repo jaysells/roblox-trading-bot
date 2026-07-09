@@ -9,15 +9,23 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const redis = require('./redis');
-const { getLTCPrice } = require('./ltcPoller');
+const { getLTCPrice, updateCapeStockMessage } = require('./ltcPoller');
 
-const CART_TTL    = 900; // 15 min
-const PENDING_TTL = 270; // 4.5 min (covers 3-min window + buffer)
+const CART_TTL    = 900;
+const PENDING_TTL = 270;
 
 function parseEmoji(str) {
   const match = str.match(/^<(a?):([^:]+):(\d+)>$/);
   if (match) return { animated: !!match[1], name: match[2], id: match[3] };
   return str;
+}
+
+async function syncStock(capeId) {
+  const raw = await redis.get(`cape:${capeId}`);
+  if (!raw) return;
+  const cape = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  cape.stock = await redis.llen(`cape:${capeId}:codes`);
+  await redis.set(`cape:${capeId}`, JSON.stringify(cape));
 }
 
 function buildCartEmbed(cart) {
@@ -92,12 +100,9 @@ async function handleCapeSelect(interaction) {
   cart.push({ capeId: cape.id, name: cape.name, price: cape.price, emoji: cape.emoji });
   await redis.set(`cart:${userId}`, JSON.stringify(cart), { ex: CART_TTL });
 
-  const embed   = buildCartEmbed(cart);
-  const buttons = buildCartButtons();
-
   return fromCart
-    ? interaction.update({ embeds: [embed], components: [buttons] })
-    : interaction.reply({ embeds: [embed], components: [buttons], ephemeral: true });
+    ? interaction.update({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()] })
+    : interaction.reply({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()], ephemeral: true });
 }
 
 async function handleAddMore(interaction) {
@@ -120,7 +125,6 @@ async function handleAddMore(interaction) {
   return interaction.update({ embeds: [buildCartEmbed(cart)], components: [row] });
 }
 
-// Button click — show modal asking for their LTC wallet address
 async function handleCheckout(interaction) {
   const userId  = interaction.user.id;
   const rawCart = await redis.get(`cart:${userId}`);
@@ -132,7 +136,7 @@ async function handleCheckout(interaction) {
 
   const modal = new ModalBuilder()
     .setCustomId('cape_checkout_modal')
-    .setTitle('Your LTC Wallet');
+    .setTitle('Enter Your LTC Wallet');
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(
@@ -148,7 +152,6 @@ async function handleCheckout(interaction) {
   return interaction.showModal(modal);
 }
 
-// Modal submit — reserve codes and show payment info
 async function handleCheckoutModal(interaction, client) {
   await interaction.deferReply({ ephemeral: true });
 
@@ -174,25 +177,30 @@ async function handleCheckoutModal(interaction, client) {
     return interaction.editReply({ content: '❌ Could not fetch LTC price. Try again in a moment.' });
   }
 
-  // Reserve codes immediately (atomic lpop)
+  // Reserve codes immediately via atomic lpop
   const reservedCodes = [];
   for (const item of cart) {
     const code = await redis.lpop(`cape:${item.capeId}:codes`);
     if (!code) {
-      // Return any already reserved codes back to the pool
+      // Return already reserved codes to pool
       for (const r of reservedCodes) {
         await redis.rpush(`cape:${r.capeId}:codes`, r.code);
         await syncStock(r.capeId);
       }
+      await updateCapeStockMessage(client);
       return interaction.editReply({ content: `❌ **${item.name}** just went out of stock. Please update your cart.` });
     }
     reservedCodes.push({ capeId: item.capeId, name: item.name, emoji: item.emoji, code });
     await syncStock(item.capeId);
   }
 
+  // Update stock message now that codes are reserved
+  await updateCapeStockMessage(client);
+
   const totalUSD  = cart.reduce((sum, i) => sum + i.price, 0);
   const totalLTC  = (totalUSD / ltcPrice).toFixed(8);
-  const expiresAt = Date.now() + 3 * 60 * 1000;
+  const now       = Date.now();
+  const expiresAt = now + 3 * 60 * 1000;
 
   const pending = {
     items: cart,
@@ -201,7 +209,7 @@ async function handleCheckoutModal(interaction, client) {
     totalUSD,
     totalLTC: parseFloat(totalLTC),
     ltcAddress,
-    createdAt: Date.now(),
+    createdAt: now,
     expiresAt,
     detectedTxHash: null,
   };
@@ -215,10 +223,10 @@ async function handleCheckoutModal(interaction, client) {
     .addFields(
       ...cart.map(i => ({ name: `${i.emoji} ${i.name}`, value: `$${i.price.toFixed(2)}`, inline: true })),
       { name: '​', value: '​', inline: false },
-      { name: '💵 Total (USD)',    value: `**$${totalUSD.toFixed(2)}**`,            inline: true  },
-      { name: '🪙 Total (LTC)',    value: `**${totalLTC} LTC**`,                    inline: true  },
-      { name: '📬 Send LTC to',   value: `\`\`\`${ltcAddress}\`\`\``,              inline: false },
-      { name: '👛 Sending From',   value: `\`${buyerAddress}\``,                    inline: false },
+      { name: '💵 Total (USD)',    value: `**$${totalUSD.toFixed(2)}**`,             inline: true  },
+      { name: '🪙 Total (LTC)',    value: `**${totalLTC} LTC**`,                     inline: true  },
+      { name: '📬 Send LTC to',   value: `\`\`\`${ltcAddress}\`\`\``,               inline: false },
+      { name: '👛 Sending From',   value: `\`${buyerAddress}\``,                     inline: false },
       { name: '⏰ Time Remaining', value: 'You have **3 minutes** to send payment.', inline: false }
     )
     .setFooter({ text: `1 LTC ≈ $${ltcPrice.toFixed(2)} • Detected from your wallet automatically` })
@@ -231,7 +239,7 @@ async function handleCheckoutModal(interaction, client) {
   return interaction.editReply({ embeds: [embed], components: [cancelRow] });
 }
 
-async function handleCancelCheckout(interaction) {
+async function handleCancelCheckout(interaction, client) {
   const userId     = interaction.user.id;
   const rawPending = await redis.get(`ltc:pending:${userId}`);
 
@@ -244,6 +252,7 @@ async function handleCancelCheckout(interaction) {
       }
     }
     await redis.del(`ltc:pending:${userId}`);
+    await updateCapeStockMessage(client);
   }
 
   return interaction.update({
@@ -260,13 +269,4 @@ async function handleLeave(interaction) {
   });
 }
 
-// Syncs cape.stock to actual Redis list length
-async function syncStock(capeId) {
-  const raw = await redis.get(`cape:${capeId}`);
-  if (!raw) return;
-  const cape = typeof raw === 'string' ? JSON.parse(raw) : raw;
-  cape.stock = await redis.llen(`cape:${capeId}:codes`);
-  await redis.set(`cape:${capeId}`, JSON.stringify(cape));
-}
-
-module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, syncStock };
+module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave };
