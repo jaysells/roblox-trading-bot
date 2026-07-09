@@ -200,19 +200,28 @@ async function checkPendingPayments(client) {
       continue;
     }
 
+    const expectedLitoshis = Math.round(pending.totalLTC * 1e8);
+    const createdAt        = pending.createdAt || (pending.expiresAt - 3 * 60 * 1000);
+
     // Match by buyer's wallet address (input) sending to our address (output)
     for (const tx of txs) {
       if (await redis.get(`ltc:seen:${tx.hash}`)) continue;
+
+      // Skip txs that existed before this checkout was created
+      const txTime = tx.received ? new Date(tx.received).getTime() : Date.now();
+      if (txTime < createdAt - 60_000) continue; // 1-min grace window
 
       const fromBuyer = (tx.inputs || []).some(inp =>
         inp.addresses && inp.addresses.includes(pending.buyerLtcAddress)
       );
       if (!fromBuyer) continue;
 
-      const toUs = (tx.outputs || []).some(out =>
+      // Find output going to us and verify amount is within 20% of expected
+      const outputToUs = (tx.outputs || []).find(out =>
         out.addresses && out.addresses.includes(ltcAddress)
       );
-      if (!toUs) continue;
+      if (!outputToUs) continue;
+      if (outputToUs.value < expectedLitoshis * 0.8) continue;
 
       if ((tx.confirmations || 0) >= 1) {
         await completePurchase(client, userId, pending, tx.hash);

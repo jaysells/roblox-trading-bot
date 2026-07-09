@@ -201,6 +201,7 @@ async function handleCheckoutModal(interaction, client) {
     totalUSD,
     totalLTC: parseFloat(totalLTC),
     ltcAddress,
+    createdAt: Date.now(),
     expiresAt,
     detectedTxHash: null,
   };
