@@ -3,11 +3,13 @@ const { hasPermission } = require('../utils/permissions');
 const redis = require('../utils/redis');
 
 const VOUCH_CHANNEL_ID = '1499195804903280812';
+const OWNER_ID = '888743210363551755';
+const REP_COUNT_KEY = 'vouch:count';
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('formatvouches')
-    .setDescription('Reformat all existing vouches in the vouch channel as embeds'),
+    .setDescription('Reformat all existing vouches and sync rep count'),
 
   async execute(interaction) {
     if (!hasPermission(interaction.member)) {
@@ -19,9 +21,9 @@ module.exports = {
 
     await interaction.deferReply({ ephemeral: true });
 
+    // Fetch all messages
     let allMessages = [];
     let lastId = null;
-
     while (true) {
       const options = { limit: 100 };
       if (lastId) options.before = lastId;
@@ -46,7 +48,6 @@ module.exports = {
         if (isForward) {
           const snapshot = msg.messageSnapshots.first();
           const content = snapshot?.content || '*(no text)*';
-
           let sourceInfo = '*(unknown server)*';
           if (msg.reference?.guildId) {
             try {
@@ -54,13 +55,9 @@ module.exports = {
               if (sourceGuild) sourceInfo = sourceGuild.name;
             } catch {}
           }
-
           embed = new EmbedBuilder()
             .setColor(0x5865F2)
-            .setAuthor({
-              name: msg.author.username,
-              iconURL: msg.author.displayAvatarURL({ dynamic: true }),
-            })
+            .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL({ dynamic: true }) })
             .setDescription(content)
             .addFields({ name: '📨 Forwarded from', value: sourceInfo, inline: true })
             .setTimestamp(msg.createdAt)
@@ -68,10 +65,7 @@ module.exports = {
         } else {
           embed = new EmbedBuilder()
             .setColor(0x57F287)
-            .setAuthor({
-              name: msg.author.username,
-              iconURL: msg.author.displayAvatarURL({ dynamic: true }),
-            })
+            .setAuthor({ name: msg.author.username, iconURL: msg.author.displayAvatarURL({ dynamic: true }) })
             .setDescription(msg.content || '*(no text)*')
             .setTimestamp(msg.createdAt)
             .setFooter({ text: 'Limited Hub' });
@@ -88,7 +82,11 @@ module.exports = {
           attachments: [...msg.attachments.values()].map(a => a.url),
         }));
 
-        await msg.delete().catch(() => {});
+        // Only delete if not the owner
+        if (msg.author.id !== OWNER_ID) {
+          await msg.delete().catch(() => {});
+        }
+
         await channel.send({ embeds: [embed] });
         done++;
 
@@ -98,6 +96,14 @@ module.exports = {
       }
     }
 
-    await interaction.editReply({ content: `✅ Done! Reformatted **${done}/${userMessages.length}** vouches.` });
+    // Set rep count to total done and update channel name
+    await redis.set(REP_COUNT_KEY, done);
+    try {
+      await channel.setName(`✅・rep・${done}`);
+    } catch (e) {
+      console.error('[rep] Failed to update channel name:', e.message);
+    }
+
+    await interaction.editReply({ content: `✅ Done! Reformatted **${done}/${userMessages.length}** vouches.\nChannel renamed to **✅・rep・${done}**` });
   },
 };
