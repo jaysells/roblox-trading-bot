@@ -65,6 +65,12 @@ async function handleCapeSelect(interaction) {
   const userId    = interaction.user.id;
   const fromCart  = interaction.customId === 'cape_cart_add_select';
 
+  if (capeId === 'cape_leave') {
+    await redis.del(`cart:${userId}`);
+    const payload = { embeds: [new EmbedBuilder().setDescription('👋 Come back anytime!').setColor(0x2b2d31)], components: [], ephemeral: true };
+    return fromCart ? interaction.update(payload) : interaction.reply(payload);
+  }
+
   const rawCape = await redis.get(`cape:${capeId}`);
   if (!rawCape) {
     const payload = { content: '❌ Cape not found.', embeds: [], components: [], ephemeral: true };

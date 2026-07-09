@@ -67,12 +67,15 @@ module.exports = {
       return interaction.editReply({ content: 'Cape shop posted (all capes currently out of stock).' });
     }
 
-    const options = inStock.map(c => ({
-      label: c.name.slice(0, 100),
-      description: `$${c.price.toFixed(2)} USD`,
-      value: c.id,
-      emoji: parseEmoji(c.emoji),
-    }));
+    const options = [
+      ...inStock.map(c => ({
+        label: c.name.slice(0, 100),
+        description: `$${c.price.toFixed(2)} USD`,
+        value: c.id,
+        emoji: parseEmoji(c.emoji),
+      })),
+      { label: 'Leave', description: 'Close this menu', value: 'cape_leave', emoji: '✖️' },
+    ];
 
     const row = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
