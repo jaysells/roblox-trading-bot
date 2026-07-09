@@ -2,19 +2,27 @@ const redis = require('../utils/redis');
 
 const VOUCH_CHANNEL_ID = '1499195804903280812';
 const VOUCH_CHANNEL_NAME = 'vouches';
+const OWNER_ID = '888743210363551755';
+const REP_COUNT_KEY = 'vouch:count';
+
+async function updateRepChannel(guild, count) {
+  try {
+    const channel = guild.channels.cache.get(VOUCH_CHANNEL_ID);
+    if (!channel) return;
+    await channel.setName(`✅・rep・${count}`);
+  } catch (e) {
+    console.error('[rep] Failed to update channel name:', e.message);
+  }
+}
 
 async function formatVouch(message, channel) {
   const { EmbedBuilder } = require('discord.js');
-
   const isForward = message.messageSnapshots && message.messageSnapshots.size > 0;
 
   let embed;
-
   if (isForward) {
     const snapshot = message.messageSnapshots.first();
     const content = snapshot?.content || '*(no text)*';
-
-    // Try to get the source guild name
     let sourceInfo = '*(unknown server)*';
     if (message.reference?.guildId) {
       try {
@@ -22,13 +30,9 @@ async function formatVouch(message, channel) {
         if (sourceGuild) sourceInfo = sourceGuild.name;
       } catch {}
     }
-
     embed = new EmbedBuilder()
       .setColor(0x5865F2)
-      .setAuthor({
-        name: message.author.username,
-        iconURL: message.author.displayAvatarURL({ dynamic: true }),
-      })
+      .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
       .setDescription(content)
       .addFields({ name: '📨 Forwarded from', value: sourceInfo, inline: true })
       .setTimestamp(message.createdAt)
@@ -36,16 +40,17 @@ async function formatVouch(message, channel) {
   } else {
     embed = new EmbedBuilder()
       .setColor(0x57F287)
-      .setAuthor({
-        name: message.author.username,
-        iconURL: message.author.displayAvatarURL({ dynamic: true }),
-      })
+      .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL({ dynamic: true }) })
       .setDescription(message.content || '*(no text)*')
       .setTimestamp(message.createdAt)
       .setFooter({ text: 'Limited Hub' });
   }
 
-  await message.delete().catch(() => {});
+  // Only delete if not the owner
+  if (message.author.id !== OWNER_ID) {
+    await message.delete().catch(() => {});
+  }
+
   await channel.send({ embeds: [embed] });
 
   // Save to Redis
@@ -59,6 +64,10 @@ async function formatVouch(message, channel) {
     timestamp: message.createdTimestamp,
     attachments: [...message.attachments.values()].map(a => a.url),
   }));
+
+  // Increment rep count and update channel name
+  const newCount = await redis.incr(REP_COUNT_KEY);
+  await updateRepChannel(message.guild, newCount);
 }
 
 module.exports = {
