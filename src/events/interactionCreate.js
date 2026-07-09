@@ -12,7 +12,7 @@ const {
 const redis = require('../utils/redis');
 const { hasPermission, STAFF_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
-const { handleCapeSelect, handleAddMore, handleCheckout, handleCancelCheckout } = require('../utils/capeShop');
+const { handleCapeSelect, handleAddMore, handleCheckout, handleCancelCheckout, handleLeave } = require('../utils/capeShop');
 
 function sanitizeName(str) {
   return str
@@ -205,6 +205,7 @@ module.exports = {
         if (customId === 'cape_add_more')        return handleAddMore(interaction, client);
         if (customId === 'cape_checkout')        return handleCheckout(interaction, client);
         if (customId === 'cape_cancel_checkout') return handleCancelCheckout(interaction, client);
+        if (customId === 'cape_leave')           return handleLeave(interaction, client);
 
         if (customId === 'giveaway_enter') {
           const messageId = interaction.message.id;

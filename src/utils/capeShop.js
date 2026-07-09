@@ -33,6 +33,7 @@ function buildCartButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cape_add_more').setLabel('Add More').setStyle(ButtonStyle.Secondary).setEmoji('➕'),
     new ButtonBuilder().setCustomId('cape_checkout').setLabel('Checkout').setStyle(ButtonStyle.Success).setEmoji('💳'),
+    new ButtonBuilder().setCustomId('cape_leave').setLabel('Leave').setStyle(ButtonStyle.Danger).setEmoji('✖️'),
   );
 }
 
@@ -243,4 +244,12 @@ async function handleCancelCheckout(interaction) {
   });
 }
 
-module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCancelCheckout };
+async function handleLeave(interaction) {
+  await redis.del(`cart:${interaction.user.id}`);
+  return interaction.update({
+    embeds: [new EmbedBuilder().setDescription('👋 Come back anytime!').setColor(0x2b2d31)],
+    components: [],
+  });
+}
+
+module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCancelCheckout, handleLeave };
