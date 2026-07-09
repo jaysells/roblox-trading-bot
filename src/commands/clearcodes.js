@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
 const redis = require('../utils/redis');
+const { updateCapeStockMessage } = require('../utils/ltcPoller');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -8,7 +9,7 @@ module.exports = {
     .setDescription('Remove all redemption codes from a cape')
     .addStringOption(o => o.setName('cape_id').setDescription('Cape ID').setRequired(true)),
 
-  async execute(interaction) {
+  async execute(interaction, client) {
     if (!hasPermission(interaction.member)) {
       return interaction.reply({ content: 'No permission.', ephemeral: true });
     }
@@ -26,6 +27,7 @@ module.exports = {
     await redis.del(`cape:${capeId}:codes`);
     cape.stock = 0;
     await redis.set(`cape:${capeId}`, JSON.stringify(cape));
+    await updateCapeStockMessage(client);
 
     return interaction.reply({
       embeds: [
