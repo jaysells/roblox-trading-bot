@@ -54,8 +54,9 @@ async function buildBrowseDropdown(excludeIds = []) {
     if (excludeIds.includes(id)) continue;
     const raw = await redis.get(`cape:${id}`);
     if (!raw) continue;
-    const cape = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (cape.stock <= 0) continue;
+    const cape  = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const stock = await redis.llen(`cape:${id}:codes`);
+    if (stock <= 0) continue;
     options.push({
       label: cape.name.slice(0, 100),
       description: `$${cape.price.toFixed(2)} USD`,
@@ -84,7 +85,8 @@ async function handleCapeSelect(interaction) {
   }
   const cape = typeof rawCape === 'string' ? JSON.parse(rawCape) : rawCape;
 
-  if (cape.stock <= 0) {
+  const liveStock = await redis.llen(`cape:${capeId}:codes`);
+  if (liveStock <= 0) {
     const payload = { content: `❌ **${cape.name}** is out of stock.`, embeds: [], components: [], ephemeral: true };
     return fromCart ? interaction.update(payload) : interaction.reply(payload);
   }

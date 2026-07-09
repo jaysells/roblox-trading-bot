@@ -40,7 +40,10 @@ module.exports = {
     const capes = [];
     for (const id of capeIds) {
       const raw = await redis.get(`cape:${id}`);
-      if (raw) capes.push(typeof raw === 'string' ? JSON.parse(raw) : raw);
+      if (!raw) continue;
+      const cape = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      cape.stock = await redis.llen(`cape:${id}:codes`);
+      capes.push(cape);
     }
 
     if (capes.length === 0) return interaction.editReply({ content: 'Failed to load capes.' });

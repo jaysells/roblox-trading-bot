@@ -86,7 +86,10 @@ async function updateCapeStockMessage(client) {
   const capes = [];
   for (const id of capeIds) {
     const capeRaw = await redis.get(`cape:${id}`);
-    if (capeRaw) capes.push(typeof capeRaw === 'string' ? JSON.parse(capeRaw) : capeRaw);
+    if (!capeRaw) continue;
+    const cape  = typeof capeRaw === 'string' ? JSON.parse(capeRaw) : capeRaw;
+    cape.stock  = await redis.llen(`cape:${id}:codes`);
+    capes.push(cape);
   }
 
   const embed = new EmbedBuilder()
