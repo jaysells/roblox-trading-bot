@@ -96,14 +96,25 @@ module.exports = {
       }
     }
 
-    // Set rep count to total done and update channel name
-    await redis.set(REP_COUNT_KEY, done);
+    // Count ALL messages in channel (user messages + already-formatted bot embeds)
+    // Bot embeds = previously formatted vouches
+    const totalVouches = allMessages.filter(m => {
+      if (!m.author.bot && m.author.id !== interaction.client.user.id) return true; // user messages
+      if (m.author.id === interaction.client.user.id && m.embeds.length > 0) return true; // bot-formatted embeds
+      return false;
+    }).length;
+
+    // Use the higher of: total found vs done (in case some failed)
+    const finalCount = Math.max(totalVouches, done);
+
+    // Set rep count and update channel name
+    await redis.set(REP_COUNT_KEY, finalCount);
     try {
-      await channel.setName(`✅・rep・${done}`);
+      await channel.setName(`✅・rep・${finalCount}`);
     } catch (e) {
       console.error('[rep] Failed to update channel name:', e.message);
     }
 
-    await interaction.editReply({ content: `✅ Done! Reformatted **${done}/${userMessages.length}** vouches.\nChannel renamed to **✅・rep・${done}**` });
+    await interaction.editReply({ content: `✅ Done! Reformatted **${done}/${userMessages.length}** vouches.\nTotal rep count: **${finalCount}**\nChannel renamed to **✅・rep・${finalCount}**` });
   },
 };
