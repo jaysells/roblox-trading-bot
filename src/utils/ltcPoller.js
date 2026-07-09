@@ -91,8 +91,8 @@ async function checkPendingPayments(client) {
     const pending = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const userId  = key.replace('ltc:pending:', '');
 
-    // Expired
-    if (Date.now() > pending.expiresAt) {
+    // Expired — only cancel if payment hasn't been detected yet
+    if (Date.now() > pending.expiresAt && !pending.detectedTxHash) {
       try {
         const user = await client.users.fetch(userId);
         await user.send('⏰ Your LTC payment window expired. Feel free to try again.').catch(() => {});
@@ -136,8 +136,7 @@ async function checkPendingPayments(client) {
         await completePurchase(client, userId, pending, tx.hash);
       } else {
         pending.detectedTxHash = tx.hash;
-        const ttlSeconds = Math.ceil((pending.expiresAt - Date.now()) / 1000) + 300;
-        await redis.set(key, JSON.stringify(pending), { ex: Math.max(ttlSeconds, 60) });
+        await redis.set(key, JSON.stringify(pending), { ex: 86400 }); // wait up to 24h for confirmation
         try {
           const user = await client.users.fetch(userId);
           await user.send('💸 **Payment detected!** Waiting for 1 blockchain confirmation...').catch(() => {});
