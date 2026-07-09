@@ -18,11 +18,36 @@ function parseEmoji(str) {
 async function getLTCPrice() {
   const cached = await redis.get('ltc:price:cache');
   if (cached) return parseFloat(cached);
-  const res   = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd');
-  const data  = await res.json();
-  const price = data.litecoin.usd;
-  await redis.set('ltc:price:cache', String(price), { ex: 60 });
-  return price;
+
+  const apis = [
+    async () => {
+      const res  = await fetch('https://api.coinbase.com/v2/prices/LTC-USD/spot');
+      const data = await res.json();
+      return parseFloat(data.data.amount);
+    },
+    async () => {
+      const res  = await fetch('https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD');
+      const data = await res.json();
+      return data.USD;
+    },
+    async () => {
+      const res  = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd');
+      const data = await res.json();
+      return data.litecoin.usd;
+    },
+  ];
+
+  for (const fn of apis) {
+    try {
+      const price = await fn();
+      if (price && price > 0) {
+        await redis.set('ltc:price:cache', String(price), { ex: 60 });
+        return price;
+      }
+    } catch {}
+  }
+
+  throw new Error('All LTC price APIs failed');
 }
 
 async function getAddressTxs(address) {
