@@ -84,7 +84,8 @@ module.exports = {
         .addOptions(options)
     );
 
-    await targetChannel.send({ embeds: [embed], components: [row] });
+    const msg = await targetChannel.send({ embeds: [embed], components: [row] });
+    await redis.set('capestock:message', JSON.stringify({ channelId: targetChannel.id, messageId: msg.id }));
     return interaction.editReply({ content: 'Cape shop posted!' });
   },
 };

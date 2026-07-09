@@ -1,16 +1,25 @@
-const { EmbedBuilder } = require('discord.js');
+const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+} = require('discord.js');
 const redis = require('./redis');
+const { syncStock } = require('./capeShop');
 
 const LOG_CHANNEL_ID = '1524672603585904742';
-const POLL_INTERVAL  = 20_000; // 20 seconds
-const WIGGLE_LITOSHIS = 50_000; // 0.0005 LTC tolerance
+const POLL_INTERVAL  = 20_000;
+
+function parseEmoji(str) {
+  const match = str.match(/^<(a?):([^:]+):(\d+)>$/);
+  if (match) return { animated: !!match[1], name: match[2], id: match[3] };
+  return str;
+}
 
 async function getLTCPrice() {
   const cached = await redis.get('ltc:price:cache');
   if (cached) return parseFloat(cached);
-
-  const res  = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd');
-  const data = await res.json();
+  const res   = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=litecoin&vs_currencies=usd');
+  const data  = await res.json();
   const price = data.litecoin.usd;
   await redis.set('ltc:price:cache', String(price), { ex: 60 });
   return price;
@@ -27,22 +36,70 @@ async function getAddressTxs(address) {
   }
 }
 
+async function updateCapeStockMessage(client) {
+  const raw = await redis.get('capestock:message');
+  if (!raw) return;
+
+  const { channelId, messageId } = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) return;
+
+  const msg = await channel.messages.fetch(messageId).catch(() => null);
+  if (!msg) return;
+
+  const capeIds = await redis.smembers('capes');
+  if (!capeIds || capeIds.length === 0) return;
+
+  const capes = [];
+  for (const id of capeIds) {
+    const capeRaw = await redis.get(`cape:${id}`);
+    if (capeRaw) capes.push(typeof capeRaw === 'string' ? JSON.parse(capeRaw) : capeRaw);
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎭 Cape Shop')
+    .setDescription('Browse and buy Minecraft capes with LTC.\nSelect a cape from the dropdown below to add it to your cart.')
+    .setColor(0x5865F2)
+    .addFields(capes.map(c => ({
+      name: `${c.emoji} ${c.name}`,
+      value: c.stock > 0
+        ? `**$${c.price.toFixed(2)}** • ${c.stock} in stock`
+        : `**$${c.price.toFixed(2)}** • ~~Out of stock~~`,
+      inline: true,
+    })))
+    .setFooter({ text: 'Payments via LTC • Instant delivery after 1 confirmation' });
+
+  const inStock = capes.filter(c => c.stock > 0);
+
+  if (inStock.length === 0) {
+    await msg.edit({ embeds: [embed], components: [] }).catch(() => {});
+    return;
+  }
+
+  const options = [
+    ...inStock.map(c => ({
+      label: c.name.slice(0, 100),
+      description: `$${c.price.toFixed(2)} USD`,
+      value: c.id,
+      emoji: parseEmoji(c.emoji),
+    })),
+    { label: 'Leave', description: 'Close this menu', value: 'cape_leave', emoji: '✖️' },
+  ];
+
+  const row = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('cape_shop_select')
+      .setPlaceholder('Select a cape to add to your cart...')
+      .addOptions(options)
+  );
+
+  await msg.edit({ embeds: [embed], components: [row] }).catch(() => {});
+}
+
 async function completePurchase(client, userId, pending, txHash) {
   await redis.set(`ltc:seen:${txHash}`, '1', { ex: 86400 });
 
-  const codes = [];
-  for (const item of pending.items) {
-    const code = await redis.lpop(`cape:${item.capeId}:codes`);
-    if (code) codes.push({ name: item.name, emoji: item.emoji, code });
-
-    const rawCape = await redis.get(`cape:${item.capeId}`);
-    if (rawCape) {
-      const cape = typeof rawCape === 'string' ? JSON.parse(rawCape) : rawCape;
-      cape.stock = Math.max(0, (cape.stock || 1) - 1);
-      await redis.set(`cape:${item.capeId}`, JSON.stringify(cape));
-    }
-    await redis.del(`ltc:lock:${item.capeId}`);
-  }
+  const codes = pending.reservedCodes || [];
 
   // DM user
   try {
@@ -51,7 +108,7 @@ async function completePurchase(client, userId, pending, txHash) {
       const lines = codes.map(c => `${c.emoji} **${c.name}:** \`${c.code}\``).join('\n');
       await user.send(`✅ **Payment confirmed!**\n\nHere are your cape codes:\n\n${lines}`).catch(() => {});
     } else {
-      await user.send('✅ Payment confirmed, but no codes were available. Please contact support.').catch(() => {});
+      await user.send('✅ Payment confirmed! Contact support for your codes.').catch(() => {});
     }
   } catch {}
 
@@ -62,16 +119,17 @@ async function completePurchase(client, userId, pending, txHash) {
       .setTitle('💰 Cape Purchase')
       .setColor(0x57F287)
       .addFields(
-        { name: 'User',   value: `<@${userId}>`,                                             inline: true  },
-        { name: 'Total',  value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true  },
-        { name: 'Items',  value: pending.items.map(i => `${i.emoji} ${i.name}`).join('\n'),   inline: false },
-        { name: 'TX',     value: `\`${txHash}\``,                                             inline: false }
+        { name: 'User',  value: `<@${userId}>`,                                              inline: true  },
+        { name: 'Total', value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true  },
+        { name: 'Items', value: pending.items.map(i => `${i.emoji} ${i.name}`).join('\n'),   inline: false },
+        { name: 'TX',    value: `\`${txHash}\``,                                             inline: false }
       )
       .setTimestamp();
     await logChannel.send({ embeds: [embed] }).catch(() => {});
   }
 
   await redis.del(`ltc:pending:${userId}`);
+  await updateCapeStockMessage(client);
 }
 
 async function checkPendingPayments(client) {
@@ -91,18 +149,22 @@ async function checkPendingPayments(client) {
     const pending = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const userId  = key.replace('ltc:pending:', '');
 
-    // Expired — only cancel if payment hasn't been detected yet
+    // Expired and not yet detected — cancel and return codes
     if (Date.now() > pending.expiresAt && !pending.detectedTxHash) {
       try {
         const user = await client.users.fetch(userId);
         await user.send('⏰ Your LTC payment window expired. Feel free to try again.').catch(() => {});
       } catch {}
-      for (const item of pending.items) await redis.del(`ltc:lock:${item.capeId}`);
+      if (pending.reservedCodes) {
+        for (const r of pending.reservedCodes) {
+          await redis.rpush(`cape:${r.capeId}:codes`, r.code);
+          await syncStock(r.capeId);
+        }
+      }
       await redis.del(key);
+      await updateCapeStockMessage(client);
       continue;
     }
-
-    const expectedLitoshis = Math.round(pending.totalLTC * 1e8);
 
     // Already matched a tx — just check confirmations
     if (pending.detectedTxHash) {
@@ -113,30 +175,25 @@ async function checkPendingPayments(client) {
       continue;
     }
 
-    // Find a matching unprocessed tx
+    // Match by buyer's wallet address (input) sending to our address (output)
     for (const tx of txs) {
       if (await redis.get(`ltc:seen:${tx.hash}`)) continue;
-      if (await redis.get(`ltc:claimed:${tx.hash}`)) continue;
 
-      let matched = false;
-      for (const out of (tx.outputs || [])) {
-        if (out.addresses && out.addresses.includes(ltcAddress)) {
-          if (Math.abs(out.value - expectedLitoshis) <= WIGGLE_LITOSHIS) {
-            matched = true;
-            break;
-          }
-        }
-      }
-      if (!matched) continue;
+      const fromBuyer = (tx.inputs || []).some(inp =>
+        inp.addresses && inp.addresses.includes(pending.buyerLtcAddress)
+      );
+      if (!fromBuyer) continue;
 
-      // Claim this tx for this user
-      await redis.set(`ltc:claimed:${tx.hash}`, userId, { ex: 3600 });
+      const toUs = (tx.outputs || []).some(out =>
+        out.addresses && out.addresses.includes(ltcAddress)
+      );
+      if (!toUs) continue;
 
       if ((tx.confirmations || 0) >= 1) {
         await completePurchase(client, userId, pending, tx.hash);
       } else {
         pending.detectedTxHash = tx.hash;
-        await redis.set(key, JSON.stringify(pending), { ex: 86400 }); // wait up to 24h for confirmation
+        await redis.set(key, JSON.stringify(pending), { ex: 86400 });
         try {
           const user = await client.users.fetch(userId);
           await user.send('💸 **Payment detected!** Waiting for 1 blockchain confirmation...').catch(() => {});
