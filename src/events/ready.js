@@ -1,5 +1,6 @@
 const { AUTO_ROLE_ID } = require('../utils/permissions');
 const { resumeGiveaways } = require('../utils/giveawayManager');
+const { startPoller } = require('../utils/ltcPoller');
 
 const KEEPALIVE_CHANNELS = [
   '1499195096447582228',
@@ -32,6 +33,7 @@ module.exports = {
     setInterval(() => ping(client), INTERVAL_MS);
 
     await resumeGiveaways(client);
+    startPoller(client);
 
     for (const [, guild] of client.guilds.cache) {
       try {

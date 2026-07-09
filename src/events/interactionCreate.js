@@ -12,6 +12,7 @@ const {
 const redis = require('../utils/redis');
 const { hasPermission, STAFF_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
+const { handleCapeSelect, handleAddMore, handleCheckout, handleCancelCheckout } = require('../utils/capeShop');
 
 function sanitizeName(str) {
   return str
@@ -195,12 +196,15 @@ module.exports = {
           return showCloseModal(interaction);
         }
 
-        // Restore keypad buttons
         if (customId.startsWith('kp_')) {
           const cmd = client.commands.get('restore');
           if (cmd && cmd.handleButton) return cmd.handleButton(interaction, client);
           return;
         }
+
+        if (customId === 'cape_add_more')        return handleAddMore(interaction, client);
+        if (customId === 'cape_checkout')        return handleCheckout(interaction, client);
+        if (customId === 'cape_cancel_checkout') return handleCancelCheckout(interaction, client);
 
         if (customId === 'giveaway_enter') {
           const messageId = interaction.message.id;
@@ -328,6 +332,9 @@ module.exports = {
       }
 
       if (interaction.isStringSelectMenu()) {
+        if (['cape_shop_select', 'cape_cart_add_select'].includes(interaction.customId)) {
+          return handleCapeSelect(interaction, client);
+        }
         if (interaction.customId === 'reroll_select') {
           const cmd = client.commands.get('reroll');
           if (cmd && cmd.handleSelect) return cmd.handleSelect(interaction, client);
