@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
 const redis = require('../utils/redis');
+const { updateCapeStockMessage } = require('../utils/ltcPoller');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -9,7 +10,7 @@ module.exports = {
     .addStringOption(o => o.setName('cape_id').setDescription('Cape ID (shown when you ran /addcape)').setRequired(true))
     .addStringOption(o => o.setName('codes').setDescription('Comma-separated codes').setRequired(true)),
 
-  async execute(interaction) {
+  async execute(interaction, client) {
     if (!hasPermission(interaction.member)) {
       return interaction.reply({ content: 'No permission.', ephemeral: true });
     }
@@ -34,6 +35,7 @@ module.exports = {
     const total = await redis.llen(`cape:${capeId}:codes`);
     cape.stock  = total;
     await redis.set(`cape:${capeId}`, JSON.stringify(cape));
+    await updateCapeStockMessage(client);
 
     return interaction.editReply({
       embeds: [
