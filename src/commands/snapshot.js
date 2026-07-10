@@ -112,7 +112,8 @@ module.exports = {
       }));
 
     // ── Find vouch channel ────────────────────────────────────────
-    const vouchChannel = guild.channels.cache.get(VOUCH_CHANNEL_ID);
+    let vouchChannel = null;
+    try { vouchChannel = await guild.channels.fetch(VOUCH_CHANNEL_ID); } catch {}
 
     const snapshot = {
       guildName: guild.name,
