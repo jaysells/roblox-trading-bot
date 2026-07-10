@@ -6,7 +6,7 @@ const {
 const { hasPermission } = require('../utils/permissions');
 const redis = require('../utils/redis');
 
-const VOUCH_CHANNEL_NAME = 'vouches';
+const VOUCH_CHANNEL_ID = '1499195804903280812';
 
 async function scrapeVouches(channel) {
   let saved = 0;
@@ -20,19 +20,40 @@ async function scrapeVouches(channel) {
     if (messages.size === 0) break;
 
     for (const msg of messages.values()) {
-      if (msg.author.bot) continue;
+      // Skip bot messages that have no embeds (system messages etc)
+      if (msg.author.bot && msg.embeds.length === 0) continue;
 
-      const vouch = {
-        id: msg.id,
-        userId: msg.author.id,
-        username: msg.author.tag,
-        content: msg.content || '(no text)',
-        timestamp: msg.createdTimestamp,
-        attachments: [...msg.attachments.values()].map(a => a.url),
-      };
+      let vouch;
 
-      await redis.set(`vouch:${msg.id}`, JSON.stringify(vouch));
-      saved++;
+      if (msg.author.bot && msg.embeds.length > 0) {
+        // Formatted vouch embed — extract data from embed
+        const embed = msg.embeds[0];
+        vouch = {
+          id:          msg.id,
+          userId:      '0',
+          username:    embed.author?.name || 'Unknown',
+          content:     embed.description || '(no text)',
+          timestamp:   msg.createdTimestamp,
+          attachments: [],
+        };
+      } else {
+        // Original unformatted user message
+        vouch = {
+          id:          msg.id,
+          userId:      msg.author.id,
+          username:    msg.author.tag,
+          content:     msg.content || '(no text)',
+          timestamp:   msg.createdTimestamp,
+          attachments: [...msg.attachments.values()].map(a => a.url),
+        };
+      }
+
+      // Don't overwrite existing richer data already saved by formatvouches/messageCreate
+      const existing = await redis.get(`vouch:${msg.id}`);
+      if (!existing) {
+        await redis.set(`vouch:${msg.id}`, JSON.stringify(vouch));
+        saved++;
+      }
     }
 
     lastId = messages.last().id;
@@ -91,9 +112,7 @@ module.exports = {
       }));
 
     // ── Find vouch channel ────────────────────────────────────────
-    const vouchChannel = guild.channels.cache.find(
-      c => c.type === ChannelType.GuildText && c.name.toLowerCase().includes(VOUCH_CHANNEL_NAME)
-    );
+    const vouchChannel = guild.channels.cache.get(VOUCH_CHANNEL_ID);
 
     const snapshot = {
       guildName: guild.name,
