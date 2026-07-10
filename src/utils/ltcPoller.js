@@ -164,13 +164,15 @@ async function completePurchase(client, userId, pending, txHash) {
 
   const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
   if (logChannel) {
+    const codeLines = codes.length > 0 ? codes.map(c => `${c.emoji} ${c.name}: \`${c.code}\``).join('\n') : 'N/A';
     const embed = new EmbedBuilder()
-      .setTitle('💰 Cape Purchase')
+      .setTitle('💰 Cape Purchase Confirmed')
       .setColor(0x57F287)
       .addFields(
         { name: 'User',  value: `<@${userId}>`,                                              inline: true  },
         { name: 'Total', value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true  },
         { name: 'Items', value: pending.items.map(i => `${i.emoji} ${i.name}`).join('\n'),   inline: false },
+        { name: 'Codes', value: codeLines,                                                   inline: false },
         { name: 'TX',    value: `\`${txHash}\``,                                             inline: false }
       )
       .setTimestamp();
@@ -251,6 +253,21 @@ async function checkPendingPayments(client) {
           const user = await client.users.fetch(userId);
           await user.send('💸 **Payment detected!** Waiting for 1 blockchain confirmation...').catch(() => {});
         } catch {}
+        const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+        if (logChannel) {
+          const detectedEmbed = new EmbedBuilder()
+            .setTitle('🔍 Payment Detected')
+            .setColor(0xF1C40F)
+            .addFields(
+              { name: 'User',   value: `<@${userId}>`,                                              inline: true  },
+              { name: 'Total',  value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true  },
+              { name: 'Items',  value: pending.items.map(i => `${i.emoji} ${i.name}`).join('\n'),   inline: false },
+              { name: 'TX',     value: `\`${tx.hash}\``,                                            inline: false }
+            )
+            .setFooter({ text: 'Waiting for 1 confirmation...' })
+            .setTimestamp();
+          await logChannel.send({ embeds: [detectedEmbed] }).catch(() => {});
+        }
       }
       break;
     }
