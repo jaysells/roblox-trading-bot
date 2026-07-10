@@ -92,6 +92,8 @@ async function updateCapeStockMessage(client) {
     capes.push(cape);
   }
 
+  capes.sort((a, b) => a.price - b.price);
+
   const embed = new EmbedBuilder()
     .setTitle('🎭 Cape Shop')
     .setDescription('Browse and buy Minecraft capes with LTC.\nSelect a cape from the dropdown below to add it to your cart.')

@@ -48,6 +48,8 @@ module.exports = {
 
     if (capes.length === 0) return interaction.editReply({ content: 'Failed to load capes.' });
 
+    capes.sort((a, b) => a.price - b.price);
+
     const embed = new EmbedBuilder()
       .setTitle('🎭 Cape Shop')
       .setDescription('Browse and buy Minecraft capes with LTC.\nSelect a cape from the dropdown below to add it to your cart.')
