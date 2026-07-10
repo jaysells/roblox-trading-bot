@@ -1,51 +1,45 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
 const redis = require('../utils/redis');
+const { updateCapeStockMessage } = require('../utils/ltcPoller');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('removecode')
-    .setDescription('Remove a specific code from a cape')
-    .addStringOption(o => o.setName('cape_id').setDescription('Cape ID').setRequired(true))
-    .addStringOption(o => o.setName('code').setDescription('The code to remove').setRequired(true)),
+    .setName('removecape')
+    .setDescription('Remove a cape from the shop entirely')
+    .addStringOption(o => o.setName('cape_id').setDescription('Cape ID').setRequired(true)),
 
-  async execute(interaction) {
+  async execute(interaction, client) {
     if (!hasPermission(interaction.member)) {
       return interaction.reply({ content: 'No permission.', ephemeral: true });
     }
 
-    await interaction.deferReply({ ephemeral: true });
-
     const capeId = interaction.options.getString('cape_id').trim();
-    const code   = interaction.options.getString('code').trim();
 
     const rawCape = await redis.get(`cape:${capeId}`);
     if (!rawCape) {
-      return interaction.editReply({ content: `No cape found with ID \`${capeId}\`.` });
+      return interaction.reply({ content: `No cape found with ID \`${capeId}\`.`, ephemeral: true });
     }
 
-    const cape    = typeof rawCape === 'string' ? JSON.parse(rawCape) : rawCape;
-    const removed = await redis.lrem(`cape:${capeId}:codes`, 0, code);
+    const cape = typeof rawCape === 'string' ? JSON.parse(rawCape) : rawCape;
 
-    if (removed === 0) {
-      return interaction.editReply({ content: `Code \`${code}\` not found in **${cape.name}**.` });
-    }
+    await redis.del(`cape:${capeId}`);
+    await redis.del(`cape:${capeId}:codes`);
+    await redis.srem('capes', capeId);
+    await updateCapeStockMessage(client);
 
-    const remaining = await redis.llen(`cape:${capeId}:codes`);
-    cape.stock = remaining;
-    await redis.set(`cape:${capeId}`, JSON.stringify(cape));
-
-    return interaction.editReply({
+    return interaction.reply({
       embeds: [
         new EmbedBuilder()
-          .setTitle('✅ Code Removed')
-          .setColor(0x57F287)
+          .setTitle('🗑️ Cape Removed')
+          .setColor(0xED4245)
           .addFields(
-            { name: 'Cape',           value: `${cape.emoji} ${cape.name}`, inline: true },
-            { name: 'Removed Code',   value: `\`${code}\``,                inline: true },
-            { name: 'Remaining Stock', value: `${remaining}`,              inline: true }
-          ),
+            { name: 'Name', value: `${cape.emoji} ${cape.name}`, inline: true },
+            { name: 'ID',   value: `\`${capeId}\``,              inline: true }
+          )
+          .setFooter({ text: 'Cape and all its codes have been deleted' }),
       ],
+      ephemeral: true,
     });
   },
 };
