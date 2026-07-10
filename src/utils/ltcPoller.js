@@ -141,7 +141,22 @@ async function completePurchase(client, userId, pending, txHash) {
     const user = await client.users.fetch(userId);
     if (codes.length > 0) {
       const lines = codes.map(c => `${c.emoji} **${c.name}:** \`${c.code}\``).join('\n');
-      await user.send(`✅ **Payment confirmed!**\n\nHere are your cape codes:\n\n${lines}`).catch(() => {});
+      const instructions = [
+        '**How to redeem your cape:**',
+        '',
+        '**1.** Go to <https://minecraft.net/redeem> and make sure you are logged in with the account you want to claim it on.',
+        '',
+        '**2.** Type in the code and click next, then click confirm.',
+        '',
+        '**3.** Go to Minecraft launcher and launch bedrock edition.',
+        '',
+        '**4.** Go to skin customization and check your capes. Equip the cape, it will automatically sync to java edition after this. (if you don\'t see the cape yet restart the game and make sure you are on the correct account)',
+        '',
+        '**5.** Open Minecraft launcher and go to skins, click new skin and you should see your cape in there.',
+        '',
+        '**Note:** sometimes it might take a few minutes for the cape to show up on bedrock edition. Fully restarting Minecraft launcher helps too.',
+      ].join('\n');
+      await user.send(`✅ **Payment confirmed!**\n\nHere are your cape codes:\n${lines}\n\n${instructions}`).catch(() => {});
     } else {
       await user.send('✅ Payment confirmed! Contact support for your codes.').catch(() => {});
     }
