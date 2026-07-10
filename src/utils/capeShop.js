@@ -29,8 +29,12 @@ async function syncStock(capeId) {
 }
 
 function buildCartEmbed(cart) {
-  const total  = cart.reduce((sum, i) => sum + i.price, 0);
-  const fields = cart.map(i => ({ name: `${i.emoji} ${i.name}`, value: `$${i.price.toFixed(2)}`, inline: true }));
+  const total  = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const fields = cart.map(i => ({
+    name:   `${i.emoji} ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ''}`,
+    value:  `$${(i.price * i.quantity).toFixed(2)}`,
+    inline: true,
+  }));
   fields.push({ name: '💵 Total', value: `**$${total.toFixed(2)} USD**`, inline: false });
   return new EmbedBuilder()
     .setTitle('🛒 Your Cart')
@@ -58,10 +62,10 @@ async function buildBrowseDropdown(excludeIds = []) {
     const stock = await redis.llen(`cape:${id}:codes`);
     if (stock <= 0) continue;
     options.push({
-      label: cape.name.slice(0, 100),
+      label:       cape.name.slice(0, 100),
       description: `$${cape.price.toFixed(2)} USD`,
-      value: cape.id,
-      emoji: parseEmoji(cape.emoji),
+      value:       cape.id,
+      emoji:       parseEmoji(cape.emoji),
     });
   }
   return options;
@@ -94,12 +98,19 @@ async function handleCapeSelect(interaction) {
   const rawCart = await redis.get(`cart:${userId}`);
   const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
 
-  if (cart.find(i => i.capeId === capeId)) {
-    const payload = { content: `**${cape.name}** is already in your cart.`, embeds: [], components: [], ephemeral: true };
-    return fromCart ? interaction.update(payload) : interaction.reply(payload);
+  const existing = cart.find(i => i.capeId === capeId);
+  if (existing) {
+    // Increment quantity if enough stock
+    const totalWanted = existing.quantity + 1;
+    if (totalWanted > liveStock) {
+      const payload = { content: `❌ Only **${liveStock}** of **${cape.name}** available.`, embeds: [], components: [], ephemeral: true };
+      return fromCart ? interaction.update(payload) : interaction.reply(payload);
+    }
+    existing.quantity = totalWanted;
+  } else {
+    cart.push({ capeId: cape.id, name: cape.name, price: cape.price, emoji: cape.emoji, quantity: 1 });
   }
 
-  cart.push({ capeId: cape.id, name: cape.name, price: cape.price, emoji: cape.emoji });
   await redis.set(`cart:${userId}`, JSON.stringify(cart), { ex: CART_TTL });
 
   return fromCart
@@ -111,9 +122,9 @@ async function handleAddMore(interaction) {
   const userId  = interaction.user.id;
   const rawCart = await redis.get(`cart:${userId}`);
   const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
-  const inCart  = cart.map(i => i.capeId);
 
-  const options = await buildBrowseDropdown(inCart);
+  // Show all capes (including ones already in cart so they can add more quantity)
+  const options = await buildBrowseDropdown([]);
   if (options.length === 0) {
     return interaction.update({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()] });
   }
@@ -121,7 +132,7 @@ async function handleAddMore(interaction) {
   const row = new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId('cape_cart_add_select')
-      .setPlaceholder('Select another cape...')
+      .setPlaceholder('Select a cape to add...')
       .addOptions(options)
   );
   return interaction.update({ embeds: [buildCartEmbed(cart)], components: [row] });
@@ -138,7 +149,7 @@ async function handleCheckout(interaction) {
 
   const modal = new ModalBuilder()
     .setCustomId('cape_checkout_modal')
-    .setTitle('Enter Your LTC Wallet');
+    .setTitle('Checkout');
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(
@@ -148,6 +159,14 @@ async function handleCheckout(interaction) {
         .setStyle(TextInputStyle.Short)
         .setRequired(true)
         .setPlaceholder('ltc1q...')
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('discount_code')
+        .setLabel('Discount code (optional)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setPlaceholder('e.g. SUMMER10')
     )
   );
 
@@ -157,8 +176,9 @@ async function handleCheckout(interaction) {
 async function handleCheckoutModal(interaction, client) {
   await interaction.deferReply({ ephemeral: true });
 
-  const userId       = interaction.user.id;
-  const buyerAddress = interaction.fields.getTextInputValue('ltc_wallet').trim();
+  const userId        = interaction.user.id;
+  const buyerAddress  = interaction.fields.getTextInputValue('ltc_wallet').trim();
+  const discountInput = (interaction.fields.getTextInputValue('discount_code') || '').toUpperCase().trim();
 
   const rawCart = await redis.get(`cart:${userId}`);
   const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
@@ -179,27 +199,60 @@ async function handleCheckoutModal(interaction, client) {
     return interaction.editReply({ content: '❌ Could not fetch LTC price. Try again in a moment.' });
   }
 
+  // Validate and apply discount code
+  let discount     = null;
+  let discountText = null;
+  if (discountInput) {
+    const rawDiscount = await redis.get(`discount:${discountInput}`);
+    if (!rawDiscount) {
+      return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` is invalid.` });
+    }
+    discount = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
+    if (discount.usesLeft <= 0) {
+      return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` has no uses remaining.` });
+    }
+  }
+
   // Reserve codes immediately via atomic lpop
   const reservedCodes = [];
   for (const item of cart) {
-    const code = await redis.lpop(`cape:${item.capeId}:codes`);
-    if (!code) {
-      // Return already reserved codes to pool
-      for (const r of reservedCodes) {
-        await redis.rpush(`cape:${r.capeId}:codes`, r.code);
-        await syncStock(r.capeId);
+    for (let q = 0; q < item.quantity; q++) {
+      const code = await redis.lpop(`cape:${item.capeId}:codes`);
+      if (!code) {
+        for (const r of reservedCodes) {
+          await redis.rpush(`cape:${r.capeId}:codes`, r.code);
+          await syncStock(r.capeId);
+        }
+        await updateCapeStockMessage(client);
+        return interaction.editReply({ content: `❌ **${item.name}** just went out of stock. Please update your cart.` });
       }
-      await updateCapeStockMessage(client);
-      return interaction.editReply({ content: `❌ **${item.name}** just went out of stock. Please update your cart.` });
+      reservedCodes.push({ capeId: item.capeId, name: item.name, emoji: item.emoji, code });
     }
-    reservedCodes.push({ capeId: item.capeId, name: item.name, emoji: item.emoji, code });
     await syncStock(item.capeId);
   }
 
-  // Update stock message now that codes are reserved
   await updateCapeStockMessage(client);
 
-  const totalUSD  = cart.reduce((sum, i) => sum + i.price, 0);
+  // Calculate totals
+  let totalUSD = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  let discountAmount = 0;
+
+  if (discount) {
+    if (discount.type === 'percent') {
+      discountAmount = totalUSD * (discount.value / 100);
+    } else {
+      discountAmount = Math.min(discount.value, totalUSD - 0.01);
+    }
+    totalUSD      = Math.max(0.01, totalUSD - discountAmount);
+    discountText  = discount.type === 'percent'
+      ? `${discount.value}% off (-$${discountAmount.toFixed(2)})`
+      : `$${discount.value.toFixed(2)} off`;
+
+    // Decrement uses
+    discount.usesLeft = Math.max(0, discount.usesLeft - 1);
+    await redis.set(`discount:${discount.code}`, JSON.stringify(discount));
+  }
+
   const totalLTC  = (totalUSD / ltcPrice).toFixed(8);
   const now       = Date.now();
   const expiresAt = now + 3 * 60 * 1000;
@@ -214,23 +267,37 @@ async function handleCheckoutModal(interaction, client) {
     createdAt: now,
     expiresAt,
     detectedTxHash: null,
+    discountCode: discount ? discount.code : null,
   };
 
   await redis.set(`ltc:pending:${userId}`, JSON.stringify(pending), { ex: PENDING_TTL });
   await redis.del(`cart:${userId}`);
 
+  const fields = [
+    ...cart.map(i => ({
+      name:   `${i.emoji} ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ''}`,
+      value:  `$${(i.price * i.quantity).toFixed(2)}`,
+      inline: true,
+    })),
+    { name: '​', value: '​', inline: false },
+  ];
+
+  if (discount) {
+    fields.push({ name: '🏷️ Discount', value: `\`${discount.code}\` — ${discountText}`, inline: false });
+  }
+
+  fields.push(
+    { name: '💵 Total (USD)',    value: `**$${totalUSD.toFixed(2)}**`,             inline: true  },
+    { name: '🪙 Total (LTC)',    value: `**${totalLTC} LTC**`,                     inline: true  },
+    { name: '📬 Send LTC to',   value: `\`\`\`${ltcAddress}\`\`\``,               inline: false },
+    { name: '👛 Sending From',   value: `\`${buyerAddress}\``,                     inline: false },
+    { name: '⏰ Time Remaining', value: 'You have **3 minutes** to send payment.', inline: false }
+  );
+
   const embed = new EmbedBuilder()
     .setTitle('💳 Checkout — Send LTC')
     .setColor(0xF1C40F)
-    .addFields(
-      ...cart.map(i => ({ name: `${i.emoji} ${i.name}`, value: `$${i.price.toFixed(2)}`, inline: true })),
-      { name: '​', value: '​', inline: false },
-      { name: '💵 Total (USD)',    value: `**$${totalUSD.toFixed(2)}**`,             inline: true  },
-      { name: '🪙 Total (LTC)',    value: `**${totalLTC} LTC**`,                     inline: true  },
-      { name: '📬 Send LTC to',   value: `\`\`\`${ltcAddress}\`\`\``,               inline: false },
-      { name: '👛 Sending From',   value: `\`${buyerAddress}\``,                     inline: false },
-      { name: '⏰ Time Remaining', value: 'You have **3 minutes** to send payment.', inline: false }
-    )
+    .addFields(fields)
     .setFooter({ text: `1 LTC ≈ $${ltcPrice.toFixed(2)} • Detected from your wallet automatically` })
     .setTimestamp();
 
@@ -251,6 +318,15 @@ async function handleCancelCheckout(interaction, client) {
       for (const r of pending.reservedCodes) {
         await redis.rpush(`cape:${r.capeId}:codes`, r.code);
         await syncStock(r.capeId);
+      }
+    }
+    // Refund discount use if it was consumed
+    if (pending.discountCode) {
+      const rawDiscount = await redis.get(`discount:${pending.discountCode}`);
+      if (rawDiscount) {
+        const discount    = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
+        discount.usesLeft = Math.min(discount.uses, discount.usesLeft + 1);
+        await redis.set(`discount:${pending.discountCode}`, JSON.stringify(discount));
       }
     }
     await redis.del(`ltc:pending:${userId}`);
