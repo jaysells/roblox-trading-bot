@@ -359,7 +359,7 @@ async function handleCheckoutModal(interaction, client) {
 
   fields.push(
     { name: '💵 Total (USD)',    value: `**$${totalUSD.toFixed(2)}**`,             inline: true  },
-    { name: '🪙 Total (LTC)',    value: `**${totalLTC} LTC**`,                     inline: true  },
+    { name: '🪙 Total (LTC)',    value: `\`\`\`${totalLTC}\`\`\``,                 inline: true  },
     { name: '📬 Send LTC to',   value: `\`\`\`${ltcAddress}\`\`\``,               inline: false },
     { name: '👛 Sending From',   value: `\`${buyerAddress}\``,                     inline: false },
     { name: '⏰ Time Remaining', value: 'You have **3 minutes** to send payment.', inline: false }
