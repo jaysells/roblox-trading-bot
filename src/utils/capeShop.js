@@ -104,20 +104,64 @@ async function handleCapeSelect(interaction, client) {
     return fromCart ? interaction.update(payload) : interaction.reply(payload);
   }
 
+  const modal = new ModalBuilder()
+    .setCustomId(`cape_qty_modal:${capeId}:${fromCart ? '1' : '0'}`)
+    .setTitle(`${cape.name} — Quantity`);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('quantity')
+        .setLabel(`How many? (${liveStock} in stock)`)
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setValue('1')
+        .setPlaceholder('1')
+    )
+  );
+
+  return interaction.showModal(modal);
+}
+
+async function handleQuantityModal(interaction, client) {
+  const [, capeId, fromCartFlag] = interaction.customId.split(':');
+  const fromCart = fromCartFlag === '1';
+  const userId   = interaction.user.id;
+
+  const rawCape = await redis.get(`cape:${capeId}`);
+  if (!rawCape) {
+    return interaction.reply({ content: '❌ Cape not found.', ephemeral: true });
+  }
+  const cape = typeof rawCape === 'string' ? JSON.parse(rawCape) : rawCape;
+
+  const qty = parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
+  if (!Number.isInteger(qty) || qty <= 0) {
+    return interaction.reply({ content: '❌ Enter a whole number greater than 0.', ephemeral: true });
+  }
+
+  const liveStock = await redis.llen(`cape:${capeId}:codes`);
+  if (liveStock <= 0) {
+    return interaction.reply({ content: `❌ **${cape.name}** is out of stock.`, ephemeral: true });
+  }
+
   const rawCart = await redis.get(`cart:${userId}`);
   const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
 
-  const existing = cart.find(i => i.capeId === capeId);
+  const existing    = cart.find(i => i.capeId === capeId);
+  const currentQty  = existing ? existing.quantity : 0;
+  const totalWanted = currentQty + qty;
+
+  if (totalWanted > liveStock) {
+    return interaction.reply({
+      content: `❌ Only **${liveStock}** of **${cape.name}** available${currentQty > 0 ? ` (you already have ${currentQty} in your cart)` : ''}.`,
+      ephemeral: true,
+    });
+  }
+
   if (existing) {
-    // Increment quantity if enough stock
-    const totalWanted = existing.quantity + 1;
-    if (totalWanted > liveStock) {
-      const payload = { content: `❌ Only **${liveStock}** of **${cape.name}** available.`, embeds: [], components: [], ephemeral: true };
-      return fromCart ? interaction.update(payload) : interaction.reply(payload);
-    }
     existing.quantity = totalWanted;
   } else {
-    cart.push({ capeId: cape.id, name: cape.name, price: cape.price, emoji: cape.emoji, quantity: 1 });
+    cart.push({ capeId: cape.id, name: cape.name, price: cape.price, emoji: cape.emoji, quantity: qty });
   }
 
   await redis.set(`cart:${userId}`, JSON.stringify(cart), { ex: CART_TTL });
@@ -127,7 +171,7 @@ async function handleCapeSelect(interaction, client) {
     .setColor(0x5865F2)
     .addFields(
       { name: 'User',  value: `<@${userId}>`, inline: true },
-      { name: 'Added', value: `${cape.emoji} ${cape.name}`, inline: true },
+      { name: 'Added', value: `${cape.emoji} ${cape.name} ×${qty}`, inline: true },
       { name: 'Cart',  value: cartLines(cart), inline: false },
     )
     .setTimestamp());
@@ -418,4 +462,4 @@ async function handleLeave(interaction) {
   });
 }
 
-module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, handleSetWalletButton, handleSetWalletModal };
+module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, handleSetWalletButton, handleSetWalletModal, handleQuantityModal };

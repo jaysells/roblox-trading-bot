@@ -12,7 +12,7 @@ const {
 const redis = require('../utils/redis');
 const { hasPermission, STAFF_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
-const { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, handleSetWalletButton, handleSetWalletModal } = require('../utils/capeShop');
+const { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, handleSetWalletButton, handleSetWalletModal, handleQuantityModal } = require('../utils/capeShop');
 
 function sanitizeName(str) {
   return str
@@ -313,6 +313,10 @@ module.exports = {
 
         if (customId === 'cape_set_wallet_modal') {
           return handleSetWalletModal(interaction, client);
+        }
+
+        if (customId.startsWith('cape_qty_modal:')) {
+          return handleQuantityModal(interaction, client);
         }
 
         if (customId === 'giveaway_modal') {
