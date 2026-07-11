@@ -3,6 +3,8 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
 } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
@@ -63,12 +65,16 @@ module.exports = {
       )
       .setFooter({ text: 'Payments via LTC • Instant delivery after 1 confirmation' });
 
+    const walletRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('cape_set_wallet').setLabel('Set Wallet').setStyle(ButtonStyle.Secondary).setEmoji('👛'),
+    );
+
     const inStock = capes.filter(c => c.stock > 0);
 
     const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
 
     if (inStock.length === 0) {
-      await targetChannel.send({ embeds: [embed] });
+      await targetChannel.send({ embeds: [embed], components: [walletRow] });
       return interaction.editReply({ content: 'Cape shop posted (all capes currently out of stock).' });
     }
 
@@ -89,7 +95,7 @@ module.exports = {
         .addOptions(options)
     );
 
-    const msg = await targetChannel.send({ embeds: [embed], components: [row] });
+    const msg = await targetChannel.send({ embeds: [embed], components: [row, walletRow] });
     await redis.set('capestock:message', JSON.stringify({ channelId: targetChannel.id, messageId: msg.id }));
     return interaction.editReply({ content: 'Cape shop posted!' });
   },

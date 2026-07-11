@@ -157,6 +157,41 @@ async function handleAddMore(interaction) {
   return interaction.update({ embeds: [buildCartEmbed(cart)], components: [row] });
 }
 
+async function handleSetWalletButton(interaction) {
+  const modal = new ModalBuilder()
+    .setCustomId('cape_set_wallet_modal')
+    .setTitle('Set Your LTC Wallet');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('wallet_address')
+        .setLabel('LTC address you will pay from')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('ltc1q...')
+    )
+  );
+
+  return interaction.showModal(modal);
+}
+
+async function handleSetWalletModal(interaction) {
+  const address = interaction.fields.getTextInputValue('wallet_address').trim();
+  await redis.set(`userltc:${interaction.user.id}`, address);
+
+  return interaction.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('✅ Wallet Registered')
+        .setColor(0x57F287)
+        .addFields({ name: 'Your LTC address', value: `\`${address}\`` })
+        .setFooter({ text: 'Cape shop payments must be sent from this address • Press the button again anytime to update it' }),
+    ],
+    ephemeral: true,
+  });
+}
+
 async function handleCheckout(interaction) {
   const userId  = interaction.user.id;
   const rawCart = await redis.get(`cart:${userId}`);
@@ -169,7 +204,7 @@ async function handleCheckout(interaction) {
   const registeredWallet = await redis.get(`userltc:${userId}`);
   if (!registeredWallet) {
     return interaction.reply({
-      content: '❌ You need to register the LTC address you\'ll be paying from first. Run `/setwallet address:<your LTC address>`, then click Checkout again.',
+      content: '❌ You need to set your LTC wallet first. Press the **👛 Set Wallet** button on the shop panel, then click Checkout again.',
       ephemeral: true,
     });
   }
@@ -200,7 +235,7 @@ async function handleCheckoutModal(interaction, client) {
   const discountInput = (interaction.fields.getTextInputValue('discount_code') || '').toUpperCase().trim();
 
   if (!buyerAddress) {
-    return interaction.editReply({ content: '❌ You need to register your LTC address first with `/setwallet address:<your LTC address>`.' });
+    return interaction.editReply({ content: '❌ You need to set your LTC wallet first. Press the **👛 Set Wallet** button on the shop panel.' });
   }
 
   const rawCart = await redis.get(`cart:${userId}`);
@@ -383,4 +418,4 @@ async function handleLeave(interaction) {
   });
 }
 
-module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave };
+module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, handleSetWalletButton, handleSetWalletModal };

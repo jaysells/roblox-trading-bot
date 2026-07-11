@@ -12,7 +12,7 @@ const {
 const redis = require('../utils/redis');
 const { hasPermission, STAFF_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
-const { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave } = require('../utils/capeShop');
+const { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, handleSetWalletButton, handleSetWalletModal } = require('../utils/capeShop');
 
 function sanitizeName(str) {
   return str
@@ -206,6 +206,7 @@ module.exports = {
         if (customId === 'cape_checkout')        return handleCheckout(interaction, client);
         if (customId === 'cape_cancel_checkout') return handleCancelCheckout(interaction, client);
         if (customId === 'cape_leave')           return handleLeave(interaction, client);
+        if (customId === 'cape_set_wallet')      return handleSetWalletButton(interaction, client);
 
         if (customId === 'giveaway_enter') {
           const messageId = interaction.message.id;
@@ -308,6 +309,10 @@ module.exports = {
 
         if (customId === 'cape_checkout_modal') {
           return handleCheckoutModal(interaction, client);
+        }
+
+        if (customId === 'cape_set_wallet_modal') {
+          return handleSetWalletModal(interaction, client);
         }
 
         if (customId === 'giveaway_modal') {

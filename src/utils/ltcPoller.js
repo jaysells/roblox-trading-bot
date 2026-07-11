@@ -2,6 +2,8 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require('discord.js');
 const redis = require('./redis');
 
@@ -107,10 +109,14 @@ async function updateCapeStockMessage(client) {
     })))
     .setFooter({ text: 'Payments via LTC • Instant delivery after 1 confirmation' });
 
+  const walletRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('cape_set_wallet').setLabel('Set Wallet').setStyle(ButtonStyle.Secondary).setEmoji('👛'),
+  );
+
   const inStock = capes.filter(c => c.stock > 0);
 
   if (inStock.length === 0) {
-    await msg.edit({ embeds: [embed], components: [] }).catch(() => {});
+    await msg.edit({ embeds: [embed], components: [walletRow] }).catch(() => {});
     return;
   }
 
@@ -131,7 +137,7 @@ async function updateCapeStockMessage(client) {
       .addOptions(options)
   );
 
-  await msg.edit({ embeds: [embed], components: [row] }).catch(() => {});
+  await msg.edit({ embeds: [embed], components: [row, walletRow] }).catch(() => {});
 }
 
 async function completePurchase(client, userId, pending, txHash) {
