@@ -226,8 +226,13 @@ async function checkPendingPayments(client) {
       continue;
     }
 
-    const expectedLitoshis = Math.round(pending.totalLTC * 1e8);
-    const createdAt        = pending.createdAt || (pending.expiresAt - 3 * 60 * 1000);
+    const createdAt = pending.createdAt || (pending.expiresAt - 3 * 60 * 1000);
+
+    // $0.01 wiggle room on the required amount, priced at the rate shown at checkout
+    const priceAtCheckout = pending.ltcPriceAtCheckout
+      || (pending.totalLTC > 0 ? pending.totalUSD / pending.totalLTC : 0);
+    const minUSD      = Math.max(0, pending.totalUSD - 0.01);
+    const minLitoshis = priceAtCheckout > 0 ? Math.round((minUSD / priceAtCheckout) * 1e8) : 0;
 
     for (const tx of txs) {
       if (await redis.get(`ltc:seen:${tx.hash}`)) continue;
@@ -235,6 +240,7 @@ async function checkPendingPayments(client) {
       const txTime = tx.received ? new Date(tx.received).getTime() : Date.now();
       if (txTime < createdAt - 60_000) continue;
 
+      // Primary match: transaction must come from the buyer's registered wallet
       const fromBuyer = (tx.inputs || []).some(inp =>
         inp.addresses && inp.addresses.includes(pending.buyerLtcAddress)
       );
@@ -244,7 +250,7 @@ async function checkPendingPayments(client) {
         out.addresses && out.addresses.includes(ltcAddress)
       );
       if (!outputToUs) continue;
-      if (outputToUs.value < expectedLitoshis * 0.8) continue;
+      if (outputToUs.value < minLitoshis) continue;
 
       if ((tx.confirmations || 0) >= 1) {
         await completePurchase(client, userId, pending, tx.hash);
@@ -281,4 +287,4 @@ function startPoller(client) {
   console.log('[LTC Poller] Started.');
 }
 
-module.exports = { startPoller, getLTCPrice, updateCapeStockMessage };
+module.exports = { startPoller, getLTCPrice, updateCapeStockMessage, LOG_CHANNEL_ID };

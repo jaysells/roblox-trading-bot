@@ -9,7 +9,7 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const redis = require('./redis');
-const { getLTCPrice, updateCapeStockMessage } = require('./ltcPoller');
+const { getLTCPrice, updateCapeStockMessage, LOG_CHANNEL_ID } = require('./ltcPoller');
 
 const CART_TTL    = 900;
 const PENDING_TTL = 270;
@@ -71,7 +71,16 @@ async function buildBrowseDropdown(excludeIds = []) {
   return options;
 }
 
-async function handleCapeSelect(interaction) {
+function cartLines(cart) {
+  return cart.map(i => `${i.emoji} ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ''} — $${(i.price * i.quantity).toFixed(2)}`).join('\n');
+}
+
+async function logToShopChannel(client, embed) {
+  const logChannel = client?.channels.cache.get(LOG_CHANNEL_ID);
+  if (logChannel) await logChannel.send({ embeds: [embed] }).catch(() => {});
+}
+
+async function handleCapeSelect(interaction, client) {
   const capeId   = interaction.values[0];
   const userId   = interaction.user.id;
   const fromCart = interaction.customId === 'cape_cart_add_select';
@@ -113,6 +122,16 @@ async function handleCapeSelect(interaction) {
 
   await redis.set(`cart:${userId}`, JSON.stringify(cart), { ex: CART_TTL });
 
+  await logToShopChannel(client, new EmbedBuilder()
+    .setTitle('🛒 Added to Cart')
+    .setColor(0x5865F2)
+    .addFields(
+      { name: 'User',  value: `<@${userId}>`, inline: true },
+      { name: 'Added', value: `${cape.emoji} ${cape.name}`, inline: true },
+      { name: 'Cart',  value: cartLines(cart), inline: false },
+    )
+    .setTimestamp());
+
   return fromCart
     ? interaction.update({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()] })
     : interaction.reply({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()], ephemeral: true });
@@ -147,19 +166,19 @@ async function handleCheckout(interaction) {
     return interaction.update({ content: 'Your cart is empty.', embeds: [], components: [] });
   }
 
+  const registeredWallet = await redis.get(`userltc:${userId}`);
+  if (!registeredWallet) {
+    return interaction.reply({
+      content: '❌ You need to register the LTC address you\'ll be paying from first. Run `/setwallet address:<your LTC address>`, then click Checkout again.',
+      ephemeral: true,
+    });
+  }
+
   const modal = new ModalBuilder()
     .setCustomId('cape_checkout_modal')
     .setTitle('Checkout');
 
   modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('ltc_wallet')
-        .setLabel('LTC address you are SENDING FROM')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setPlaceholder('ltc1q...')
-    ),
     new ActionRowBuilder().addComponents(
       new TextInputBuilder()
         .setCustomId('discount_code')
@@ -177,8 +196,12 @@ async function handleCheckoutModal(interaction, client) {
   await interaction.deferReply({ ephemeral: true });
 
   const userId        = interaction.user.id;
-  const buyerAddress  = interaction.fields.getTextInputValue('ltc_wallet').trim();
+  const buyerAddress  = await redis.get(`userltc:${userId}`);
   const discountInput = (interaction.fields.getTextInputValue('discount_code') || '').toUpperCase().trim();
+
+  if (!buyerAddress) {
+    return interaction.editReply({ content: '❌ You need to register your LTC address first with `/setwallet address:<your LTC address>`.' });
+  }
 
   const rawCart = await redis.get(`cart:${userId}`);
   const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
@@ -263,6 +286,7 @@ async function handleCheckoutModal(interaction, client) {
     buyerLtcAddress: buyerAddress,
     totalUSD,
     totalLTC: parseFloat(totalLTC),
+    ltcPriceAtCheckout: ltcPrice,
     ltcAddress,
     createdAt: now,
     expiresAt,
@@ -272,6 +296,18 @@ async function handleCheckoutModal(interaction, client) {
 
   await redis.set(`ltc:pending:${userId}`, JSON.stringify(pending), { ex: PENDING_TTL });
   await redis.del(`cart:${userId}`);
+
+  await logToShopChannel(client, new EmbedBuilder()
+    .setTitle('🧾 Checkout Started')
+    .setColor(0xF1C40F)
+    .addFields(
+      { name: 'User',   value: `<@${userId}>`, inline: true },
+      { name: 'Wallet', value: `\`${buyerAddress}\``, inline: true },
+      { name: 'Total',  value: `$${totalUSD.toFixed(2)} | ${totalLTC} LTC`, inline: true },
+      { name: 'Cart',   value: cartLines(cart), inline: false },
+    )
+    .setFooter({ text: '3-minute payment window' })
+    .setTimestamp());
 
   const fields = [
     ...cart.map(i => ({
