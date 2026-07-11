@@ -221,8 +221,36 @@ async function checkPendingPayments(client) {
           await syncStock(r.capeId);
         }
       }
+      // Refund discount use if it was consumed (unlimited codes don't track uses)
+      if (pending.discountCode) {
+        const rawDiscount = await redis.get(`discount:${pending.discountCode}`);
+        if (rawDiscount) {
+          const discount = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
+          if (!discount.unlimited) {
+            discount.usesLeft = Math.min(discount.uses, discount.usesLeft + 1);
+            await redis.set(`discount:${pending.discountCode}`, JSON.stringify(discount));
+          }
+        }
+      }
       await redis.del(key);
       await updateCapeStockMessage(client);
+
+      const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+      if (logChannel) {
+        await logChannel.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('⏰ Payment Expired')
+              .setColor(0xED4245)
+              .addFields(
+                { name: 'User',  value: `<@${userId}>`, inline: true },
+                { name: 'Total', value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true },
+                { name: 'Items', value: pending.items.map(i => `${i.emoji} ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ''}`).join('\n'), inline: false },
+              )
+              .setTimestamp(),
+          ],
+        }).catch(() => {});
+      }
       continue;
     }
 

@@ -310,7 +310,11 @@ async function handleCheckoutModal(interaction, client) {
       return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` is invalid.` });
     }
     discount = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
-    if (discount.usesLeft <= 0) {
+    if (discount.unlimited) {
+      if (Date.now() > discount.expiresAt) {
+        return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` has expired.` });
+      }
+    } else if (discount.usesLeft <= 0) {
       return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` has no uses remaining.` });
     }
   }
@@ -350,9 +354,11 @@ async function handleCheckoutModal(interaction, client) {
       ? `${discount.value}% off (-$${discountAmount.toFixed(2)})`
       : `$${discount.value.toFixed(2)} off`;
 
-    // Decrement uses
-    discount.usesLeft = Math.max(0, discount.usesLeft - 1);
-    await redis.set(`discount:${discount.code}`, JSON.stringify(discount));
+    // Decrement uses (unlimited codes just expire, no count to track)
+    if (!discount.unlimited) {
+      discount.usesLeft = Math.max(0, discount.usesLeft - 1);
+      await redis.set(`discount:${discount.code}`, JSON.stringify(discount));
+    }
   }
 
   const totalLTC  = (totalUSD / ltcPrice).toFixed(8);
@@ -435,17 +441,29 @@ async function handleCancelCheckout(interaction, client) {
         await syncStock(r.capeId);
       }
     }
-    // Refund discount use if it was consumed
+    // Refund discount use if it was consumed (unlimited codes don't track uses)
     if (pending.discountCode) {
       const rawDiscount = await redis.get(`discount:${pending.discountCode}`);
       if (rawDiscount) {
-        const discount    = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
-        discount.usesLeft = Math.min(discount.uses, discount.usesLeft + 1);
-        await redis.set(`discount:${pending.discountCode}`, JSON.stringify(discount));
+        const discount = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
+        if (!discount.unlimited) {
+          discount.usesLeft = Math.min(discount.uses, discount.usesLeft + 1);
+          await redis.set(`discount:${pending.discountCode}`, JSON.stringify(discount));
+        }
       }
     }
     await redis.del(`ltc:pending:${userId}`);
     await updateCapeStockMessage(client);
+
+    await logToShopChannel(client, new EmbedBuilder()
+      .setTitle('❌ Checkout Cancelled')
+      .setColor(0xED4245)
+      .addFields(
+        { name: 'User',  value: `<@${userId}>`, inline: true },
+        { name: 'Total', value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true },
+        { name: 'Cart',  value: cartLines(pending.items), inline: false },
+      )
+      .setTimestamp());
   }
 
   return interaction.update({

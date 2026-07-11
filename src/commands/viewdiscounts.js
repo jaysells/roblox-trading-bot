@@ -25,9 +25,14 @@ module.exports = {
       if (!raw) continue;
       const d     = typeof raw === 'string' ? JSON.parse(raw) : raw;
       const value = d.type === 'percent' ? `${d.value}% off` : `$${d.value.toFixed(2)} off`;
+      const limit = d.unlimited
+        ? (Date.now() > d.expiresAt
+            ? `Unlimited uses — **expired**`
+            : `Unlimited uses • expires <t:${Math.floor(d.expiresAt / 1000)}:R>`)
+        : `${d.usesLeft} use${d.usesLeft !== 1 ? 's' : ''} remaining`;
       fields.push({
         name:   `\`${d.code}\``,
-        value:  `${value}\n${d.usesLeft} use${d.usesLeft !== 1 ? 's' : ''} remaining`,
+        value:  `${value}\n${limit}`,
         inline: true,
       });
     }
