@@ -354,7 +354,7 @@ async function handleWalletChange(interaction) {
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder('ltc1q...');
-  if (current) input.setValue(current);
+  if (current) input.setValue(String(current));
 
   modal.addComponents(new ActionRowBuilder().addComponents(input));
 
