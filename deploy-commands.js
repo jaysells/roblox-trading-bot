@@ -19,28 +19,34 @@ const guildIds = process.env.GUILD_ID
   ? process.env.GUILD_ID.split(',').map(id => id.trim()).filter(Boolean)
   : [];
 
+const REQUEST_TIMEOUT_MS = 20_000;
+
 (async () => {
-  try {
-    if (guildIds.length === 0) {
-      // No guild IDs — deploy globally
+  if (guildIds.length === 0) {
+    // No guild IDs — deploy globally
+    try {
       console.log(`Deploying ${commands.length} commands globally...`);
       const data = await rest.put(
         Routes.applicationCommands(process.env.CLIENT_ID),
-        { body: commands }
+        { body: commands, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }
       );
       console.log(`Successfully deployed ${data.length} commands globally.`);
-    } else {
-      // Deploy to each guild
-      for (const guildId of guildIds) {
+    } catch (err) {
+      console.error('Failed to deploy commands globally:', err.message);
+    }
+  } else {
+    // Deploy to each guild — one guild's failure/timeout must not block the rest
+    for (const guildId of guildIds) {
+      try {
         console.log(`Deploying ${commands.length} commands to guild ${guildId}...`);
         const data = await rest.put(
           Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
-          { body: commands }
+          { body: commands, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }
         );
         console.log(`Successfully deployed ${data.length} commands to guild ${guildId}.`);
+      } catch (err) {
+        console.error(`Failed to deploy commands to guild ${guildId}:`, err.message);
       }
     }
-  } catch (err) {
-    console.error(err);
   }
 })();
