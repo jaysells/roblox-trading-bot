@@ -78,6 +78,22 @@ module.exports = {
 
     // ── Vouch formatter ───────────────────────────────────────────
     if (message.channelId === VOUCH_CHANNEL_ID) {
+      const isForward = message.messageSnapshots && message.messageSnapshots.size > 0;
+      const isOwner   = message.author.id === OWNER_ID;
+
+      if (!isForward && !isOwner) {
+        const mentionsOwner  = message.mentions.users.has(OWNER_ID);
+        const hasRepKeyword  = /(\+rep|vouch)/i.test(message.content || '');
+
+        if (!mentionsOwner || !hasRepKeyword) {
+          await message.delete().catch(() => {});
+          await message.author.send(
+            "❌ Your message wasn't posted as a vouch. Please @mention the person and amount, and include `+rep` or `vouch` somewhere in your message."
+          ).catch(() => {});
+          return;
+        }
+      }
+
       await formatVouch(message, message.channel);
       return;
     }

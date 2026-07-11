@@ -7,8 +7,9 @@ const {
 } = require('discord.js');
 const redis = require('./redis');
 
-const LOG_CHANNEL_ID = '1524672603585904742';
-const POLL_INTERVAL  = 20_000;
+const LOG_CHANNEL_ID   = '1524672603585904742';
+const VOUCH_CHANNEL_ID = '1499195804903280812';
+const POLL_INTERVAL    = 20_000;
 
 function parseEmoji(str) {
   const match = str.match(/^<(a?):([^:]+):(\d+)>$/);
@@ -164,9 +165,10 @@ async function completePurchase(client, userId, pending, txHash) {
         '',
         '**Note:** sometimes it might take a few minutes for the cape to show up on bedrock edition. Fully restarting Minecraft launcher helps too.',
       ].join('\n');
-      await user.send(`✅ **Payment confirmed!**\n\nHere are your cape codes:\n${lines}\n\n${instructions}`).catch(() => {});
+      const vouchReminder = `\n\n🙏 Enjoying your cape? Don't forget to leave a vouch in <#${VOUCH_CHANNEL_ID}>!`;
+      await user.send(`✅ **Payment confirmed!**\n\nHere are your cape codes:\n${lines}\n\n${instructions}${vouchReminder}`).catch(() => {});
     } else {
-      await user.send('✅ Payment confirmed! Contact support for your codes.').catch(() => {});
+      await user.send(`✅ Payment confirmed! Contact support for your codes.\n\n🙏 Don't forget to leave a vouch in <#${VOUCH_CHANNEL_ID}>!`).catch(() => {});
     }
   } catch {}
 
