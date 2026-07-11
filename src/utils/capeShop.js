@@ -11,6 +11,9 @@ const {
 const redis = require('./redis');
 const { getLTCPrice, updateCapeStockMessage, LOG_CHANNEL_ID } = require('./ltcPoller');
 
+const CART_LOG_CHANNEL_ID   = '1525417940151701505';
+const WALLET_LOG_CHANNEL_ID = '1525417994140913724';
+
 const CART_TTL    = 900;
 const PENDING_TTL = 270;
 
@@ -46,9 +49,22 @@ function buildCartEmbed(cart) {
 function buildCartButtons() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('cape_add_more').setLabel('Add More').setStyle(ButtonStyle.Secondary).setEmoji('➕'),
+    new ButtonBuilder().setCustomId('cape_remove_item').setLabel('Remove').setStyle(ButtonStyle.Secondary).setEmoji('➖'),
     new ButtonBuilder().setCustomId('cape_checkout').setLabel('Checkout').setStyle(ButtonStyle.Success).setEmoji('💳'),
     new ButtonBuilder().setCustomId('cape_leave').setLabel('Leave').setStyle(ButtonStyle.Danger).setEmoji('✖️'),
   );
+}
+
+function buildCartRemoveOptions(cart) {
+  return [
+    ...cart.map(i => ({
+      label:       `${i.name} (×${i.quantity})`.slice(0, 100),
+      description: `$${(i.price * i.quantity).toFixed(2)} total`,
+      value:       i.capeId,
+      emoji:       parseEmoji(i.emoji),
+    })),
+    { label: 'Cancel', description: 'Go back without removing anything', value: 'cape_remove_cancel', emoji: '↩️' },
+  ];
 }
 
 async function buildBrowseDropdown(excludeIds = []) {
@@ -75,9 +91,20 @@ function cartLines(cart) {
   return cart.map(i => `${i.emoji} ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ''} — $${(i.price * i.quantity).toFixed(2)}`).join('\n');
 }
 
-async function logToShopChannel(client, embed) {
-  const logChannel = client?.channels.cache.get(LOG_CHANNEL_ID);
+async function logToChannel(client, channelId, embed) {
+  const logChannel = client?.channels.cache.get(channelId);
   if (logChannel) await logChannel.send({ embeds: [embed] }).catch(() => {});
+}
+
+async function logLeftCart(client, userId, cart) {
+  await logToChannel(client, CART_LOG_CHANNEL_ID, new EmbedBuilder()
+    .setTitle('🚪 Left Shop')
+    .setColor(0x2b2d31)
+    .addFields(
+      { name: 'User', value: `<@${userId}>`, inline: true },
+      { name: 'Cart', value: cart.length > 0 ? cartLines(cart) : '*(cart was empty)*', inline: false },
+    )
+    .setTimestamp());
 }
 
 async function handleCapeSelect(interaction, client) {
@@ -86,7 +113,10 @@ async function handleCapeSelect(interaction, client) {
   const fromCart = interaction.customId === 'cape_cart_add_select';
 
   if (capeId === 'cape_leave') {
+    const rawCart = await redis.get(`cart:${userId}`);
+    const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
     await redis.del(`cart:${userId}`);
+    await logLeftCart(client, userId, cart);
     const payload = { embeds: [new EmbedBuilder().setDescription('👋 Come back anytime!').setColor(0x2b2d31)], components: [], ephemeral: true };
     return fromCart ? interaction.update(payload) : interaction.reply(payload);
   }
@@ -166,7 +196,7 @@ async function handleQuantityModal(interaction, client) {
 
   await redis.set(`cart:${userId}`, JSON.stringify(cart), { ex: CART_TTL });
 
-  await logToShopChannel(client, new EmbedBuilder()
+  await logToChannel(client, CART_LOG_CHANNEL_ID, new EmbedBuilder()
     .setTitle('🛒 Added to Cart')
     .setColor(0x5865F2)
     .addFields(
@@ -201,28 +231,152 @@ async function handleAddMore(interaction) {
   return interaction.update({ embeds: [buildCartEmbed(cart)], components: [row] });
 }
 
+async function handleRemoveItem(interaction) {
+  const userId  = interaction.user.id;
+  const rawCart = await redis.get(`cart:${userId}`);
+  const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
+
+  if (cart.length === 0) {
+    return interaction.update({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()] });
+  }
+
+  const row = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('cape_remove_select')
+      .setPlaceholder('Select an item to remove...')
+      .addOptions(buildCartRemoveOptions(cart))
+  );
+  return interaction.update({ embeds: [buildCartEmbed(cart)], components: [row] });
+}
+
+async function handleRemoveSelect(interaction, client) {
+  const capeId  = interaction.values[0];
+  const userId  = interaction.user.id;
+  const rawCart = await redis.get(`cart:${userId}`);
+  const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
+
+  if (capeId === 'cape_remove_cancel') {
+    return interaction.update({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()] });
+  }
+
+  const idx = cart.findIndex(i => i.capeId === capeId);
+  if (idx === -1) {
+    return interaction.update({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()] });
+  }
+  const [removed] = cart.splice(idx, 1);
+
+  if (cart.length === 0) {
+    await redis.del(`cart:${userId}`);
+  } else {
+    await redis.set(`cart:${userId}`, JSON.stringify(cart), { ex: CART_TTL });
+  }
+
+  await logToChannel(client, CART_LOG_CHANNEL_ID, new EmbedBuilder()
+    .setTitle('➖ Removed from Cart')
+    .setColor(0xED4245)
+    .addFields(
+      { name: 'User',    value: `<@${userId}>`, inline: true },
+      { name: 'Removed', value: `${removed.emoji} ${removed.name} ×${removed.quantity}`, inline: true },
+      { name: 'Cart',    value: cart.length > 0 ? cartLines(cart) : '*(now empty)*', inline: false },
+    )
+    .setTimestamp());
+
+  if (cart.length === 0) {
+    return interaction.update({
+      embeds: [new EmbedBuilder().setDescription('🛒 Your cart is now empty.').setColor(0x2b2d31)],
+      components: [],
+    });
+  }
+
+  return interaction.update({ embeds: [buildCartEmbed(cart)], components: [buildCartButtons()] });
+}
+
 async function handleSetWalletButton(interaction) {
+  const current = await redis.get(`userltc:${interaction.user.id}`);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('cape_wallet_view').setLabel('View').setStyle(ButtonStyle.Secondary).setEmoji('👁️'),
+    new ButtonBuilder().setCustomId('cape_wallet_change').setLabel(current ? 'Change' : 'Set').setStyle(ButtonStyle.Primary).setEmoji('✏️'),
+  );
+
+  return interaction.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('👛 Your LTC Wallet')
+        .setColor(0x5865F2)
+        .setDescription(current
+          ? 'You have a wallet on file. Use the buttons below to view or change it.'
+          : 'You haven\'t set a wallet yet. Press **Set** to register the address you\'ll pay from.'),
+    ],
+    components: [row],
+    ephemeral: true,
+  });
+}
+
+async function handleWalletView(interaction, client) {
+  const userId  = interaction.user.id;
+  const current = await redis.get(`userltc:${userId}`);
+
+  if (!current) {
+    return interaction.reply({ content: 'You haven\'t set a wallet yet.', ephemeral: true });
+  }
+
+  await logToChannel(client, WALLET_LOG_CHANNEL_ID, new EmbedBuilder()
+    .setTitle('👁️ Wallet Viewed')
+    .setColor(0x5865F2)
+    .addFields(
+      { name: 'User',   value: `<@${userId}>`, inline: true },
+      { name: 'Wallet', value: `\`${current}\``, inline: true },
+    )
+    .setTimestamp());
+
+  return interaction.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('👁️ Your LTC Wallet')
+        .setColor(0x5865F2)
+        .addFields({ name: 'Address', value: `\`${current}\`` }),
+    ],
+    ephemeral: true,
+  });
+}
+
+async function handleWalletChange(interaction) {
+  const current = await redis.get(`userltc:${interaction.user.id}`);
+
   const modal = new ModalBuilder()
     .setCustomId('cape_set_wallet_modal')
     .setTitle('Set Your LTC Wallet');
 
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('wallet_address')
-        .setLabel('LTC address you will pay from')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setPlaceholder('ltc1q...')
-    )
-  );
+  const input = new TextInputBuilder()
+    .setCustomId('wallet_address')
+    .setLabel('LTC address you will pay from')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setPlaceholder('ltc1q...');
+  if (current) input.setValue(current);
+
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
 
   return interaction.showModal(modal);
 }
 
-async function handleSetWalletModal(interaction) {
+async function handleSetWalletModal(interaction, client) {
+  const userId  = interaction.user.id;
   const address = interaction.fields.getTextInputValue('wallet_address').trim();
-  await redis.set(`userltc:${interaction.user.id}`, address);
+  const old     = await redis.get(`userltc:${userId}`);
+
+  await redis.set(`userltc:${userId}`, address);
+
+  await logToChannel(client, WALLET_LOG_CHANNEL_ID, new EmbedBuilder()
+    .setTitle('✏️ Wallet Changed')
+    .setColor(0x57F287)
+    .addFields(
+      { name: 'User', value: `<@${userId}>`, inline: true },
+      { name: 'Old',  value: old ? `\`${old}\`` : '*(none)*', inline: true },
+      { name: 'New',  value: `\`${address}\``, inline: true },
+    )
+    .setTimestamp());
 
   return interaction.reply({
     embeds: [
@@ -230,7 +384,7 @@ async function handleSetWalletModal(interaction) {
         .setTitle('✅ Wallet Registered')
         .setColor(0x57F287)
         .addFields({ name: 'Your LTC address', value: `\`${address}\`` })
-        .setFooter({ text: 'Cape shop payments must be sent from this address • Press the button again anytime to update it' }),
+        .setFooter({ text: 'Cape shop payments must be sent from this address • Press the wallet button anytime to view or change it' }),
     ],
     ephemeral: true,
   });
@@ -382,7 +536,7 @@ async function handleCheckoutModal(interaction, client) {
   await redis.set(`ltc:pending:${userId}`, JSON.stringify(pending), { ex: PENDING_TTL });
   await redis.del(`cart:${userId}`);
 
-  await logToShopChannel(client, new EmbedBuilder()
+  await logToChannel(client, LOG_CHANNEL_ID, new EmbedBuilder()
     .setTitle('🧾 Checkout Started')
     .setColor(0xF1C40F)
     .addFields(
@@ -455,7 +609,7 @@ async function handleCancelCheckout(interaction, client) {
     await redis.del(`ltc:pending:${userId}`);
     await updateCapeStockMessage(client);
 
-    await logToShopChannel(client, new EmbedBuilder()
+    await logToChannel(client, LOG_CHANNEL_ID, new EmbedBuilder()
       .setTitle('❌ Checkout Cancelled')
       .setColor(0xED4245)
       .addFields(
@@ -472,12 +626,32 @@ async function handleCancelCheckout(interaction, client) {
   });
 }
 
-async function handleLeave(interaction) {
-  await redis.del(`cart:${interaction.user.id}`);
+async function handleLeave(interaction, client) {
+  const userId  = interaction.user.id;
+  const rawCart = await redis.get(`cart:${userId}`);
+  const cart    = rawCart ? (typeof rawCart === 'string' ? JSON.parse(rawCart) : rawCart) : [];
+
+  await redis.del(`cart:${userId}`);
+  await logLeftCart(client, userId, cart);
+
   return interaction.update({
     embeds: [new EmbedBuilder().setDescription('👋 Come back anytime!').setColor(0x2b2d31)],
     components: [],
   });
 }
 
-module.exports = { handleCapeSelect, handleAddMore, handleCheckout, handleCheckoutModal, handleCancelCheckout, handleLeave, handleSetWalletButton, handleSetWalletModal, handleQuantityModal };
+module.exports = {
+  handleCapeSelect,
+  handleAddMore,
+  handleRemoveItem,
+  handleRemoveSelect,
+  handleCheckout,
+  handleCheckoutModal,
+  handleCancelCheckout,
+  handleLeave,
+  handleSetWalletButton,
+  handleWalletView,
+  handleWalletChange,
+  handleSetWalletModal,
+  handleQuantityModal,
+};
