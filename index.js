@@ -26,11 +26,18 @@ for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) 
 const eventsPath = path.join(__dirname, 'src', 'events');
 for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'))) {
   const event = require(path.join(eventsPath, file));
+  const wrapped = (...args) => {
+    Promise.resolve(event.execute(...args, client)).catch(err => {
+      console.error(`Unhandled error in ${event.name} handler:`, err);
+    });
+  };
   if (event.once) {
-    client.once(event.name, (...args) => event.execute(...args, client));
+    client.once(event.name, wrapped);
   } else {
-    client.on(event.name, (...args) => event.execute(...args, client));
+    client.on(event.name, wrapped);
   }
 }
+
+client.on('error', err => console.error('Client error:', err));
 
 client.login(process.env.TOKEN);
