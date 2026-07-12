@@ -1,6 +1,7 @@
 const { AUTO_ROLE_ID } = require('../utils/permissions');
 const { resumeGiveaways } = require('../utils/giveawayManager');
 const { startPoller } = require('../utils/ltcPoller');
+const { cacheGuildInvites } = require('../utils/inviteTracker');
 
 const KEEPALIVE_CHANNELS = [
   '1499195096447582228',
@@ -48,6 +49,8 @@ module.exports = {
       } catch (e) {
         console.error(`Error syncing auto role in ${guild.name}:`, e.message);
       }
+
+      await cacheGuildInvites(guild);
     }
 
     console.log('Ready. Auto role sync complete.');
