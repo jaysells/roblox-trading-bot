@@ -48,9 +48,10 @@ module.exports = {
     }
 
     const discount = days
-      ? { code, type, value, uses: null, usesLeft: null, unlimited: true, expiresAt: Date.now() + days * 86_400_000 }
-      : { code, type, value, uses, usesLeft: uses, unlimited: false, expiresAt: null };
+      ? { code, type, value, uses: null, unlimited: true, expiresAt: Date.now() + days * 86_400_000 }
+      : { code, type, value, uses, unlimited: false, expiresAt: null };
     await redis.set(`discount:${code}`, JSON.stringify(discount));
+    if (!days) await redis.set(`discount:${code}:usesleft`, uses);
 
     const displayValue = type === 'percent' ? `${value}% off` : `$${value.toFixed(2)} off`;
     const limitField = days

@@ -61,6 +61,14 @@ async function syncStock(capeId) {
   await redis.set(`cape:${capeId}`, JSON.stringify(cape));
 }
 
+// Defined locally to avoid circular dependency with capeShop.js
+async function refundDiscountUse(code, maxUses) {
+  const newVal = await redis.incr(`discount:${code}:usesleft`);
+  if (typeof maxUses === 'number' && newVal > maxUses) {
+    await redis.set(`discount:${code}:usesleft`, maxUses);
+  }
+}
+
 async function getAddressTxs(address) {
   try {
     const res = await fetch(`https://api.blockcypher.com/v1/ltc/main/addrs/${encodeURIComponent(address)}/full?limit=50`);
@@ -227,8 +235,7 @@ async function checkPendingPayments(client) {
         if (rawDiscount) {
           const discount = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
           if (!discount.unlimited) {
-            discount.usesLeft = Math.min(discount.uses, discount.usesLeft + 1);
-            await redis.set(`discount:${pending.discountCode}`, JSON.stringify(discount));
+            await refundDiscountUse(pending.discountCode, discount.uses);
           }
         }
       }
@@ -264,11 +271,12 @@ async function checkPendingPayments(client) {
 
     const createdAt = pending.createdAt || (pending.expiresAt - 3 * 60 * 1000);
 
-    // $0.01 wiggle room on the required amount, priced at the rate shown at checkout
-    const priceAtCheckout = pending.ltcPriceAtCheckout
-      || (pending.totalLTC > 0 ? pending.totalUSD / pending.totalLTC : 0);
-    const minUSD      = Math.max(0, pending.totalUSD - 0.01);
-    const minLitoshis = priceAtCheckout > 0 ? Math.round((minUSD / priceAtCheckout) * 1e8) : 0;
+    // Match against the exact LTC amount quoted to the buyer at checkout
+    // (not a USD amount re-converted through the current/checkout price),
+    // with a small fixed tolerance for wallet-software rounding/network dust.
+    const totalLitoshis  = Math.round(pending.totalLTC * 1e8);
+    const wiggleLitoshis = 1000; // 0.00001 LTC
+    const minLitoshis    = Math.max(0, totalLitoshis - wiggleLitoshis);
 
     for (const tx of txs) {
       if (await redis.get(`ltc:seen:${tx.hash}`)) continue;

@@ -31,6 +31,25 @@ async function syncStock(capeId) {
   await redis.set(`cape:${capeId}`, JSON.stringify(cape));
 }
 
+// Atomic decrement-then-check so concurrent buyers can't over-redeem a
+// limited-use discount code: only the first `uses` decrements land at >= 0,
+// any beyond that go negative and get rolled back.
+async function consumeDiscountUse(code) {
+  const remaining = await redis.decr(`discount:${code}:usesleft`);
+  if (remaining < 0) {
+    await redis.incr(`discount:${code}:usesleft`);
+    return false;
+  }
+  return true;
+}
+
+async function refundDiscountUse(code, maxUses) {
+  const newVal = await redis.incr(`discount:${code}:usesleft`);
+  if (typeof maxUses === 'number' && newVal > maxUses) {
+    await redis.set(`discount:${code}:usesleft`, maxUses);
+  }
+}
+
 function buildCartEmbed(cart) {
   const total  = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
   const fields = cart.map(i => ({
@@ -455,7 +474,8 @@ async function handleCheckoutModal(interaction, client) {
     return interaction.editReply({ content: '❌ Could not fetch LTC price. Try again in a moment.' });
   }
 
-  // Validate and apply discount code
+  // Validate discount code (fast-fail pre-check only; the atomic consume
+  // that actually guards against over-redemption happens after reservation)
   let discount     = null;
   let discountText = null;
   if (discountInput) {
@@ -468,8 +488,11 @@ async function handleCheckoutModal(interaction, client) {
       if (Date.now() > discount.expiresAt) {
         return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` has expired.` });
       }
-    } else if (discount.usesLeft <= 0) {
-      return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` has no uses remaining.` });
+    } else {
+      const usesLeftNow = parseInt(await redis.get(`discount:${discount.code}:usesleft`), 10) || 0;
+      if (usesLeftNow <= 0) {
+        return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` has no uses remaining.` });
+      }
     }
   }
 
@@ -491,6 +514,21 @@ async function handleCheckoutModal(interaction, client) {
     await syncStock(item.capeId);
   }
 
+  // Atomically consume the discount use now that codes are reserved. If we
+  // lose the race for the last use, roll back the reservation just like the
+  // out-of-stock path above.
+  if (discount && !discount.unlimited) {
+    const consumed = await consumeDiscountUse(discount.code);
+    if (!consumed) {
+      for (const r of reservedCodes) {
+        await redis.rpush(`cape:${r.capeId}:codes`, r.code);
+        await syncStock(r.capeId);
+      }
+      await updateCapeStockMessage(client);
+      return interaction.editReply({ content: `❌ Discount code \`${discountInput}\` just ran out of uses. Please checkout again.` });
+    }
+  }
+
   await updateCapeStockMessage(client);
 
   // Calculate totals
@@ -507,12 +545,6 @@ async function handleCheckoutModal(interaction, client) {
     discountText  = discount.type === 'percent'
       ? `${discount.value}% off (-$${discountAmount.toFixed(2)})`
       : `$${discount.value.toFixed(2)} off`;
-
-    // Decrement uses (unlimited codes just expire, no count to track)
-    if (!discount.unlimited) {
-      discount.usesLeft = Math.max(0, discount.usesLeft - 1);
-      await redis.set(`discount:${discount.code}`, JSON.stringify(discount));
-    }
   }
 
   const totalLTC  = (totalUSD / ltcPrice).toFixed(8);
@@ -601,8 +633,7 @@ async function handleCancelCheckout(interaction, client) {
       if (rawDiscount) {
         const discount = typeof rawDiscount === 'string' ? JSON.parse(rawDiscount) : rawDiscount;
         if (!discount.unlimited) {
-          discount.usesLeft = Math.min(discount.uses, discount.usesLeft + 1);
-          await redis.set(`discount:${pending.discountCode}`, JSON.stringify(discount));
+          await refundDiscountUse(pending.discountCode, discount.uses);
         }
       }
     }

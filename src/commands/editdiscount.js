@@ -35,21 +35,21 @@ module.exports = {
     const wasUnlimited = discount.unlimited;
     const oldLimit = wasUnlimited
       ? `Unlimited (expired <t:${Math.floor(discount.expiresAt / 1000)}:R>)`
-      : `${discount.usesLeft}`;
+      : `${parseInt(await redis.get(`discount:${code}:usesleft`), 10) || 0}`;
 
     let newLimit;
     if (days !== null) {
       discount.unlimited = true;
       discount.uses      = null;
-      discount.usesLeft  = null;
       discount.expiresAt = Date.now() + days * 86_400_000;
       newLimit = `Unlimited uses • expires <t:${Math.floor(discount.expiresAt / 1000)}:R>`;
+      await redis.del(`discount:${code}:usesleft`);
     } else {
       discount.unlimited = false;
       discount.uses      = uses;
-      discount.usesLeft  = uses;
       discount.expiresAt = null;
       newLimit = `${uses}`;
+      await redis.set(`discount:${code}:usesleft`, uses);
     }
 
     await redis.set(`discount:${code}`, JSON.stringify(discount));

@@ -21,6 +21,7 @@ module.exports = {
     }
 
     await redis.del(`discount:${code}`);
+    await redis.del(`discount:${code}:usesleft`);
 
     return interaction.reply({
       embeds: [

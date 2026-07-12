@@ -9,6 +9,18 @@ const ALT_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 // Rebuilt from Discord on every restart; the durable data lives in Redis.
 const inviteCache = new Map();
 
+// Per-guild queue so concurrent joins (e.g. several people arriving via the
+// same invite at once) fetch-diff-and-update the invite cache one at a time
+// instead of racing on the same read-modify-write and tearing each other's update.
+const guildJoinQueues = new Map();
+
+function runExclusive(guildId, task) {
+  const prev = guildJoinQueues.get(guildId) || Promise.resolve();
+  const run = prev.then(task, task);
+  guildJoinQueues.set(guildId, run.then(() => {}, () => {}));
+  return run;
+}
+
 function snapshotInvites(invites) {
   const map = new Map();
   invites.forEach(inv => {
@@ -39,9 +51,40 @@ function noteInviteDelete(invite) {
   if (map) map.delete(invite.code);
 }
 
+// Stats live in a Redis hash (invitestats:{id}) so concurrent joins/leaves for
+// the same inviter increment atomically via HINCRBY instead of racing on a
+// read-modify-write of a JSON blob (which drops updates when two land at once).
+// One-time lazy migration from the old `invites:{id}` JSON blob format below.
+async function ensureStatsMigrated(inviterId) {
+  const hashKey = `invitestats:${inviterId}`;
+  if (await redis.exists(hashKey)) return;
+
+  const oldRaw = await redis.get(`invites:${inviterId}`);
+  if (!oldRaw) return;
+  const old = typeof oldRaw === 'string' ? JSON.parse(oldRaw) : oldRaw;
+  await redis.hset(hashKey, {
+    joins:  old.joins  || 0,
+    leaves: old.leaves || 0,
+    alts:   old.alts   || 0,
+  });
+}
+
 async function getInviterStats(inviterId) {
-  const raw = await redis.get(`invites:${inviterId}`);
-  return raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : { joins: 0, leaves: 0, alts: 0 };
+  await ensureStatsMigrated(inviterId);
+  const stats = await redis.hgetall(`invitestats:${inviterId}`);
+  return {
+    joins:  parseInt(stats?.joins, 10)  || 0,
+    leaves: Math.max(0, parseInt(stats?.leaves, 10) || 0),
+    alts:   parseInt(stats?.alts, 10)   || 0,
+  };
+}
+
+async function bumpInviterStats(inviterId, deltas) {
+  await ensureStatsMigrated(inviterId);
+  const hashKey = `invitestats:${inviterId}`;
+  for (const [field, delta] of Object.entries(deltas)) {
+    if (delta) await redis.hincrby(hashKey, field, delta);
+  }
 }
 
 // Diffs the current invite list against the last cached snapshot to figure
@@ -94,10 +137,7 @@ async function recordJoin(inviterId, member) {
 
     data.active = true;
     await redis.set(`invited_by:${joinedId}`, JSON.stringify(data));
-
-    const stats = await getInviterStats(data.inviterId);
-    stats.leaves = Math.max(0, stats.leaves - 1);
-    await redis.set(`invites:${data.inviterId}`, JSON.stringify(stats));
+    await bumpInviterStats(data.inviterId, { leaves: -1 });
     return;
   }
 
@@ -105,11 +145,7 @@ async function recordJoin(inviterId, member) {
   const isAlt = accountAge < ALT_THRESHOLD_MS;
 
   await redis.set(`invited_by:${joinedId}`, JSON.stringify({ inviterId, isAlt, active: true }));
-
-  const stats = await getInviterStats(inviterId);
-  stats.joins += 1;
-  if (isAlt) stats.alts += 1;
-  await redis.set(`invites:${inviterId}`, JSON.stringify(stats));
+  await bumpInviterStats(inviterId, { joins: 1, alts: isAlt ? 1 : 0 });
 }
 
 async function recordLeave(userId) {
@@ -120,16 +156,15 @@ async function recordLeave(userId) {
 
   data.active = false;
   await redis.set(`invited_by:${userId}`, JSON.stringify(data));
-
-  const stats = await getInviterStats(data.inviterId);
-  stats.leaves += 1;
-  await redis.set(`invites:${data.inviterId}`, JSON.stringify(stats));
+  await bumpInviterStats(data.inviterId, { leaves: 1 });
 }
 
 async function handleMemberJoin(member) {
   if (member.user.bot) return;
 
-  const inviterId = await findUsedInviterId(member.guild);
+  // Serialized per guild: concurrent joins must fetch-diff-and-update the
+  // invite cache one at a time or they'll race on the same stale snapshot.
+  const inviterId = await runExclusive(member.guild.id, () => findUsedInviterId(member.guild));
   if (!inviterId) return; // vanity URL, widget, or couldn't be determined
   if (inviterId === member.id) return; // can't credit yourself
 

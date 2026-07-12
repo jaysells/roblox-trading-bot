@@ -163,7 +163,7 @@ module.exports = {
               new TextInputBuilder().setCustomId('payment').setLabel('How would you like to be paid?').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. PayPal, CashApp, Crypto')
             )
           );
-          return interaction.showModal(modal);
+          return await interaction.showModal(modal);
         }
 
         if (customId === 'ticket_buy') {
@@ -176,7 +176,7 @@ module.exports = {
               new TextInputBuilder().setCustomId('payment').setLabel('How will you pay?').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('e.g. PayPal, CashApp, Crypto')
             )
           );
-          return interaction.showModal(modal);
+          return await interaction.showModal(modal);
         }
 
         if (customId === 'ticket_inviterewards') {
@@ -189,11 +189,11 @@ module.exports = {
               new TextInputBuilder().setCustomId('roblox').setLabel('Your Roblox username').setStyle(TextInputStyle.Short).setRequired(true)
             )
           );
-          return interaction.showModal(modal);
+          return await interaction.showModal(modal);
         }
 
         if (['ticket_giveaway', 'ticket_support'].includes(customId)) {
-          return createTicket(interaction, customId.replace('ticket_', ''));
+          return await createTicket(interaction, customId.replace('ticket_', ''));
         }
 
         if (customId === 'ticket_close') {
@@ -204,26 +204,26 @@ module.exports = {
               ticketData = topic;
               await redis.set(`ticketchannel:${interaction.channelId}`, ticketData);
             } else {
-              return interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
+              return await interaction.reply({ content: 'This is not a ticket channel.', ephemeral: true });
             }
           }
-          return showCloseModal(interaction);
+          return await showCloseModal(interaction);
         }
 
         if (customId.startsWith('kp_')) {
           const cmd = client.commands.get('restore');
-          if (cmd && cmd.handleButton) return cmd.handleButton(interaction, client);
+          if (cmd && cmd.handleButton) return await cmd.handleButton(interaction, client);
           return;
         }
 
-        if (customId === 'cape_add_more')        return handleAddMore(interaction, client);
-        if (customId === 'cape_remove_item')     return handleRemoveItem(interaction, client);
-        if (customId === 'cape_checkout')        return handleCheckout(interaction, client);
-        if (customId === 'cape_cancel_checkout') return handleCancelCheckout(interaction, client);
-        if (customId === 'cape_leave')           return handleLeave(interaction, client);
-        if (customId === 'cape_set_wallet')      return handleSetWalletButton(interaction, client);
-        if (customId === 'cape_wallet_view')     return handleWalletView(interaction, client);
-        if (customId === 'cape_wallet_change')   return handleWalletChange(interaction, client);
+        if (customId === 'cape_add_more')        return await handleAddMore(interaction, client);
+        if (customId === 'cape_remove_item')     return await handleRemoveItem(interaction, client);
+        if (customId === 'cape_checkout')        return await handleCheckout(interaction, client);
+        if (customId === 'cape_cancel_checkout') return await handleCancelCheckout(interaction, client);
+        if (customId === 'cape_leave')           return await handleLeave(interaction, client);
+        if (customId === 'cape_set_wallet')      return await handleSetWalletButton(interaction, client);
+        if (customId === 'cape_wallet_view')     return await handleWalletView(interaction, client);
+        if (customId === 'cape_wallet_change')   return await handleWalletChange(interaction, client);
 
         if (customId === 'giveaway_enter') {
           const messageId = interaction.message.id;
@@ -255,7 +255,7 @@ module.exports = {
         if (customId === 'sell_ticket_modal') {
           const items   = interaction.fields.getTextInputValue('items');
           const payment = interaction.fields.getTextInputValue('payment');
-          return createTicket(interaction, 'sell', {
+          return await createTicket(interaction, 'sell', {
             formFields: [
               { label: '🛒 Items for Sale', value: items },
               { label: '💳 Payment Method', value: payment },
@@ -266,7 +266,7 @@ module.exports = {
         if (customId === 'buy_ticket_modal') {
           const items   = interaction.fields.getTextInputValue('items');
           const payment = interaction.fields.getTextInputValue('payment');
-          return createTicket(interaction, 'buy', {
+          return await createTicket(interaction, 'buy', {
             formFields: [
               { label: '🛒 Items to Buy', value: items },
               { label: '💳 Payment Method', value: payment },
@@ -278,7 +278,7 @@ module.exports = {
           const invites = interaction.fields.getTextInputValue('invites').trim();
           const roblox  = interaction.fields.getTextInputValue('roblox').trim();
           const channelName = `${sanitizeName(invites)}inviterewards-${sanitizeName(interaction.user.username)}`;
-          return createTicket(interaction, 'inviterewards', {
+          return await createTicket(interaction, 'inviterewards', {
             channelName,
             formFields: [
               { label: '📨 Invite Count', value: invites },
@@ -317,7 +317,7 @@ module.exports = {
         }
 
         if (customId === 'rename_ticket_modal') {
-          if (!hasPermission(interaction.member)) return interaction.reply({ content: 'No permission.', ephemeral: true });
+          if (!hasPermission(interaction.member)) return await interaction.reply({ content: 'No permission.', ephemeral: true });
           const newName = sanitizeName(interaction.fields.getTextInputValue('new_name'));
           await interaction.channel.setName(newName).catch(() => {});
           await interaction.reply({ content: `Channel renamed to **${newName}**`, ephemeral: true });
@@ -325,38 +325,38 @@ module.exports = {
         }
 
         if (customId === 'cape_checkout_modal') {
-          return handleCheckoutModal(interaction, client);
+          return await handleCheckoutModal(interaction, client);
         }
 
         if (customId === 'cape_set_wallet_modal') {
-          return handleSetWalletModal(interaction, client);
+          return await handleSetWalletModal(interaction, client);
         }
 
         if (customId.startsWith('cape_qty_modal:')) {
-          return handleQuantityModal(interaction, client);
+          return await handleQuantityModal(interaction, client);
         }
 
         if (customId === 'giveaway_modal') {
           const cmd = client.commands.get('giveaway');
-          if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
+          if (cmd && cmd.handleModal) return await cmd.handleModal(interaction, client);
           return;
         }
 
         if (customId === 'message_modal') {
           const cmd = client.commands.get('message');
-          if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
+          if (cmd && cmd.handleModal) return await cmd.handleModal(interaction, client);
           return;
         }
 
         if (customId === 'setfaq_modal') {
           const cmd = client.commands.get('setfaq');
-          if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
+          if (cmd && cmd.handleModal) return await cmd.handleModal(interaction, client);
           return;
         }
 
         if (customId.startsWith('stock_')) {
           const cmd = client.commands.get('updatestock');
-          if (cmd && cmd.handleModal) return cmd.handleModal(interaction, client);
+          if (cmd && cmd.handleModal) return await cmd.handleModal(interaction, client);
           return;
         }
         return;
@@ -364,18 +364,18 @@ module.exports = {
 
       if (interaction.isStringSelectMenu()) {
         if (['cape_shop_select', 'cape_cart_add_select'].includes(interaction.customId)) {
-          return handleCapeSelect(interaction, client);
+          return await handleCapeSelect(interaction, client);
         }
         if (interaction.customId === 'cape_remove_select') {
-          return handleRemoveSelect(interaction, client);
+          return await handleRemoveSelect(interaction, client);
         }
         if (interaction.customId === 'reroll_select') {
           const cmd = client.commands.get('reroll');
-          if (cmd && cmd.handleSelect) return cmd.handleSelect(interaction, client);
+          if (cmd && cmd.handleSelect) return await cmd.handleSelect(interaction, client);
         }
         if (interaction.customId === 'updatestock_select') {
           const cmd = client.commands.get('updatestock');
-          if (cmd && cmd.handleSelect) return cmd.handleSelect(interaction, client);
+          if (cmd && cmd.handleSelect) return await cmd.handleSelect(interaction, client);
         }
       }
     } catch (e) {
