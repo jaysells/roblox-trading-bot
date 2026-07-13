@@ -31,7 +31,7 @@ const {
   handleQuantityModal,
 } = require('../utils/capeShop');
 
-const MONEY_PER_INVITE_USD = 0.07;
+const MONEY_PER_INVITE_USD = 0.05;
 
 function sanitizeName(str) {
   return str
