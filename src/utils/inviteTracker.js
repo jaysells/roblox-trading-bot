@@ -273,6 +273,7 @@ module.exports = {
   handleMemberJoin,
   handleMemberLeave,
   getInviterStats,
+  bumpInviterStats,
   claimInvites,
   refundInvites,
   sweepPendingJoins,
