@@ -1,9 +1,13 @@
 const redis = require('./redis');
 
-// Accounts younger than this at join time are flagged as likely alts.
-// This is a heuristic (account-age check) — Discord gives bots no reliable
-// way to prove two accounts belong to the same person.
-const ALT_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
+// A join only counts once the member has been in the server this long, and
+// only if their Discord account was already at least this old *when they
+// joined*. Both are heuristics — Discord gives bots no reliable way to prove
+// two accounts belong to the same person — but they raise the cost of farming
+// invite rewards with disposable/rejoin-spam accounts.
+const RETENTION_MS      = 24 * 60 * 60 * 1000;
+const ALT_THRESHOLD_MS  = 7 * 24 * 60 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
 // In-memory only: guildId -> Map<inviteCode, { uses, maxUses, inviterId }>
 // Rebuilt from Discord on every restart; the durable data lives in Redis.
@@ -71,12 +75,14 @@ async function ensureStatsMigrated(inviterId) {
 
 async function getInviterStats(inviterId) {
   await ensureStatsMigrated(inviterId);
-  const stats = await redis.hgetall(`invitestats:${inviterId}`);
-  return {
-    joins:  parseInt(stats?.joins, 10)  || 0,
-    leaves: Math.max(0, parseInt(stats?.leaves, 10) || 0),
-    alts:   parseInt(stats?.alts, 10)   || 0,
-  };
+  const stats   = await redis.hgetall(`invitestats:${inviterId}`);
+  const joins   = parseInt(stats?.joins, 10)  || 0;
+  const leaves  = Math.max(0, parseInt(stats?.leaves, 10) || 0);
+  const alts    = parseInt(stats?.alts, 10)   || 0;
+  const claimed = Math.max(0, parseInt(stats?.claimed, 10) || 0);
+  const net     = Math.max(0, joins - leaves);
+
+  return { joins, leaves, alts, claimed, net, claimable: Math.max(0, net - claimed) };
 }
 
 async function bumpInviterStats(inviterId, deltas) {
@@ -85,6 +91,32 @@ async function bumpInviterStats(inviterId, deltas) {
   for (const [field, delta] of Object.entries(deltas)) {
     if (delta) await redis.hincrby(hashKey, field, delta);
   }
+}
+
+// Atomically reserves `count` invites out of an inviter's claimable balance so
+// concurrent/duplicate claims (double-clicks, two claim types at once) can't
+// spend the same invites twice. Mirrors the discount-code decrement-then-
+// rollback-if-invalid pattern used in the cape shop.
+async function claimInvites(inviterId, count) {
+  await ensureStatsMigrated(inviterId);
+  const hashKey = `invitestats:${inviterId}`;
+  const newClaimed = await redis.hincrby(hashKey, 'claimed', count);
+
+  const stats = await redis.hgetall(hashKey);
+  const joins  = parseInt(stats?.joins, 10)  || 0;
+  const leaves = Math.max(0, parseInt(stats?.leaves, 10) || 0);
+  const net    = Math.max(0, joins - leaves);
+
+  if (newClaimed > net) {
+    await redis.hincrby(hashKey, 'claimed', -count); // roll back — insufficient balance
+    return false;
+  }
+  return true;
+}
+
+async function refundInvites(inviterId, count) {
+  if (!count) return;
+  await redis.hincrby(`invitestats:${inviterId}`, 'claimed', -count);
 }
 
 // Diffs the current invite list against the last cached snapshot to figure
@@ -125,40 +157,6 @@ async function findUsedInviterId(guild) {
   return usedInviterId;
 }
 
-async function recordJoin(inviterId, member) {
-  const joinedId = member.id;
-  const existingRaw = await redis.get(`invited_by:${joinedId}`);
-
-  if (existingRaw) {
-    // This Discord account has already been credited to an inviter before —
-    // never count the same user twice, even across leave/rejoin cycles.
-    const data = typeof existingRaw === 'string' ? JSON.parse(existingRaw) : existingRaw;
-    if (data.active) return;
-
-    data.active = true;
-    await redis.set(`invited_by:${joinedId}`, JSON.stringify(data));
-    await bumpInviterStats(data.inviterId, { leaves: -1 });
-    return;
-  }
-
-  const accountAge = Date.now() - member.user.createdTimestamp;
-  const isAlt = accountAge < ALT_THRESHOLD_MS;
-
-  await redis.set(`invited_by:${joinedId}`, JSON.stringify({ inviterId, isAlt, active: true }));
-  await bumpInviterStats(inviterId, { joins: 1, alts: isAlt ? 1 : 0 });
-}
-
-async function recordLeave(userId) {
-  const raw = await redis.get(`invited_by:${userId}`);
-  if (!raw) return;
-  const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-  if (!data.active) return;
-
-  data.active = false;
-  await redis.set(`invited_by:${userId}`, JSON.stringify(data));
-  await bumpInviterStats(data.inviterId, { leaves: 1 });
-}
-
 async function handleMemberJoin(member) {
   if (member.user.bot) return;
 
@@ -168,11 +166,104 @@ async function handleMemberJoin(member) {
   if (!inviterId) return; // vanity URL, widget, or couldn't be determined
   if (inviterId === member.id) return; // can't credit yourself
 
-  await recordJoin(inviterId, member);
+  const joinedId = member.id;
+  const existingRaw = await redis.get(`invited_by:${joinedId}`);
+
+  if (existingRaw) {
+    // This Discord account already earned its one-time credit before (possibly
+    // under a different inviter) — reactivate instantly, no new probation.
+    const data = typeof existingRaw === 'string' ? JSON.parse(existingRaw) : existingRaw;
+    if (data.active) return;
+
+    data.active = true;
+    await redis.set(`invited_by:${joinedId}`, JSON.stringify(data));
+    await bumpInviterStats(data.inviterId, { leaves: -1 });
+    return;
+  }
+
+  // Never confirmed before — start (or restart) the 24h/account-age probation.
+  // Nothing is counted yet; the sweep below decides once the window passes.
+  await redis.set(`pending_join:${joinedId}`, JSON.stringify({
+    inviterId,
+    joinedAt: Date.now(),
+    accountCreatedAt: member.user.createdTimestamp,
+    guildId: member.guild.id,
+  }));
 }
 
 async function handleMemberLeave(member) {
-  await recordLeave(member.id);
+  const userId = member.id;
+
+  const raw = await redis.get(`invited_by:${userId}`);
+  if (raw) {
+    const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (data.active) {
+      data.active = false;
+      await redis.set(`invited_by:${userId}`, JSON.stringify(data));
+      await bumpInviterStats(data.inviterId, { leaves: 1 });
+    }
+    return;
+  }
+
+  // Leaving mid-probation voids the attempt entirely: no join, no leave, no
+  // permanent credit — they (or whoever invites them next) can try again later.
+  await redis.del(`pending_join:${userId}`);
+}
+
+// Runs periodically rather than on a per-join timer so it survives restarts:
+// any join still pending after RETENTION_MS gets checked and, if it still
+// qualifies, confirmed. Cheap enough at this cadence to just scan all pending keys.
+async function sweepPendingJoins(client) {
+  const keys = await redis.keys('pending_join:*');
+  if (!keys || keys.length === 0) return;
+
+  const now = Date.now();
+  for (const key of keys) {
+    const raw = await redis.get(key);
+    if (!raw) continue;
+    const pending = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const userId = key.replace('pending_join:', '');
+
+    if (now - pending.joinedAt < RETENTION_MS) continue; // still on probation
+
+    const ageAtJoin = pending.joinedAt - pending.accountCreatedAt;
+    if (ageAtJoin < ALT_THRESHOLD_MS) {
+      // Disqualified: account was too new when it joined. Tracked for
+      // visibility only — it never counts toward the join total.
+      await bumpInviterStats(pending.inviterId, { alts: 1 });
+      await redis.del(key);
+      continue;
+    }
+
+    const guild = client.guilds.cache.get(pending.guildId);
+    if (!guild) {
+      await redis.del(key); // bot no longer in that guild
+      continue;
+    }
+
+    let member = guild.members.cache.get(userId);
+    if (!member) {
+      try {
+        member = await guild.members.fetch(userId);
+      } catch {
+        member = null;
+      }
+    }
+    if (!member) {
+      // They left (or were removed) before we got to confirm them.
+      await redis.del(key);
+      continue;
+    }
+
+    await redis.set(`invited_by:${userId}`, JSON.stringify({ inviterId: pending.inviterId, active: true }));
+    await bumpInviterStats(pending.inviterId, { joins: 1 });
+    await redis.del(key);
+  }
+}
+
+function startPendingJoinSweeper(client) {
+  setInterval(() => sweepPendingJoins(client).catch(e => console.error('[invites] Sweep error:', e.message)), SWEEP_INTERVAL_MS);
+  console.log('[invites] Pending-join sweeper started.');
 }
 
 module.exports = {
@@ -182,4 +273,8 @@ module.exports = {
   handleMemberJoin,
   handleMemberLeave,
   getInviterStats,
+  claimInvites,
+  refundInvites,
+  sweepPendingJoins,
+  startPendingJoinSweeper,
 };

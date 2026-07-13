@@ -10,6 +10,7 @@ const {
 } = require('discord.js');
 const redis = require('./redis');
 const { getLTCPrice, updateCapeStockMessage, LOG_CHANNEL_ID } = require('./ltcPoller');
+const { isValidLtcAddress } = require('./ltcWallet');
 
 const CART_LOG_CHANNEL_ID   = '1525417940151701505';
 const WALLET_LOG_CHANNEL_ID = '1525417994140913724';
@@ -383,7 +384,12 @@ async function handleWalletChange(interaction) {
 async function handleSetWalletModal(interaction, client) {
   const userId  = interaction.user.id;
   const address = interaction.fields.getTextInputValue('wallet_address').trim();
-  const old     = await redis.get(`userltc:${userId}`);
+
+  if (!isValidLtcAddress(address)) {
+    return interaction.reply({ content: `❌ \`${address}\` doesn't look like a valid LTC address. Double-check it and try again.`, ephemeral: true });
+  }
+
+  const old = await redis.get(`userltc:${userId}`);
 
   await redis.set(`userltc:${userId}`, address);
 

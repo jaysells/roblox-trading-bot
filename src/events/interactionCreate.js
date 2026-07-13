@@ -12,6 +12,9 @@ const {
 const redis = require('../utils/redis');
 const { hasPermission, STAFF_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
+const { getInviterStats, claimInvites, refundInvites } = require('../utils/inviteTracker');
+const { isValidLtcAddress, sendLtc } = require('../utils/ltcWallet');
+const { getLTCPrice, LOG_CHANNEL_ID } = require('../utils/ltcPoller');
 const {
   handleCapeSelect,
   handleAddMore,
@@ -27,6 +30,8 @@ const {
   handleSetWalletModal,
   handleQuantityModal,
 } = require('../utils/capeShop');
+
+const MONEY_PER_INVITE_USD = 0.07;
 
 function sanitizeName(str) {
   return str
@@ -225,6 +230,41 @@ module.exports = {
         if (customId === 'cape_wallet_view')     return await handleWalletView(interaction, client);
         if (customId === 'cape_wallet_change')   return await handleWalletChange(interaction, client);
 
+        if (customId === 'invreward_claim_money') {
+          const stats = await getInviterStats(interaction.user.id);
+          if (stats.claimable <= 0) {
+            return await interaction.reply({ content: "❌ You don't have any invites to claim yet.", ephemeral: true });
+          }
+          const wallet = await redis.get(`userltc:${interaction.user.id}`);
+          if (!wallet) {
+            return await interaction.reply({ content: '❌ Set your LTC wallet first with the **Set Wallet** button below, then come back and claim.', ephemeral: true });
+          }
+          const modal = new ModalBuilder().setCustomId('invreward_money_modal').setTitle('Claim Invite Rewards — Money');
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('invite_count').setLabel(`Invites to claim (${stats.claimable} available)`).setStyle(TextInputStyle.Short).setRequired(true).setValue(String(stats.claimable))
+            )
+          );
+          return await interaction.showModal(modal);
+        }
+
+        if (customId === 'invreward_claim_capes') {
+          const stats = await getInviterStats(interaction.user.id);
+          if (stats.claimable <= 0) {
+            return await interaction.reply({ content: "❌ You don't have any invites to claim yet.", ephemeral: true });
+          }
+          const modal = new ModalBuilder().setCustomId('invreward_capes_modal').setTitle('Claim Invite Rewards — Capes');
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('invite_count').setLabel(`Invites to claim (${stats.claimable} available)`).setStyle(TextInputStyle.Short).setRequired(true).setValue(String(stats.claimable))
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder().setCustomId('cape_request').setLabel('Which cape(s) would you like?').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('e.g. 2x Dragon Cape')
+            )
+          );
+          return await interaction.showModal(modal);
+        }
+
         if (customId === 'giveaway_enter') {
           const messageId = interaction.message.id;
           const userId = interaction.user.id;
@@ -322,6 +362,102 @@ module.exports = {
           await interaction.channel.setName(newName).catch(() => {});
           await interaction.reply({ content: `Channel renamed to **${newName}**`, ephemeral: true });
           return;
+        }
+
+        if (customId === 'invreward_money_modal') {
+          await interaction.deferReply({ ephemeral: true });
+
+          const userId = interaction.user.id;
+          const count  = parseInt(interaction.fields.getTextInputValue('invite_count').trim(), 10);
+          if (!Number.isInteger(count) || count <= 0) {
+            return interaction.editReply({ content: '❌ Enter a whole number greater than 0.' });
+          }
+
+          const wallet = await redis.get(`userltc:${userId}`);
+          if (!wallet) {
+            return interaction.editReply({ content: '❌ You need to set your LTC wallet first.' });
+          }
+          if (!isValidLtcAddress(wallet)) {
+            return interaction.editReply({ content: '❌ Your saved wallet address is not a valid LTC address. Update it with **Set Wallet** and try again.' });
+          }
+
+          const reserved = await claimInvites(userId, count);
+          if (!reserved) {
+            return interaction.editReply({ content: "❌ You don't have that many invites available to claim." });
+          }
+
+          let ltcPrice;
+          try {
+            ltcPrice = await getLTCPrice();
+          } catch {
+            await refundInvites(userId, count);
+            return interaction.editReply({ content: '❌ Could not fetch the LTC price. Your invites were not used — try again in a moment.' });
+          }
+
+          const amountUsd = count * MONEY_PER_INVITE_USD;
+          const amountLtc = amountUsd / ltcPrice;
+
+          let txHash;
+          try {
+            txHash = await sendLtc(wallet, amountLtc);
+          } catch (e) {
+            await refundInvites(userId, count);
+            console.error('[inviterewards] LTC payout failed:', e.message);
+            return interaction.editReply({ content: `❌ Payout failed (${e.message}). Your invites were not used — try again or contact staff.` });
+          }
+
+          const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+          if (logChannel) {
+            await logChannel.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle('📨 Invite Reward Paid — Money')
+                  .setColor(0x57F287)
+                  .addFields(
+                    { name: 'User',            value: `<@${userId}>`, inline: true },
+                    { name: 'Invites Claimed', value: `${count}`,     inline: true },
+                    { name: 'Amount',          value: `$${amountUsd.toFixed(2)} (${amountLtc.toFixed(6)} LTC)`, inline: true },
+                    { name: 'Wallet',          value: `\`${wallet}\``, inline: false },
+                    { name: 'TX',              value: `\`${txHash}\``, inline: false },
+                  )
+                  .setTimestamp(),
+              ],
+            }).catch(() => {});
+          }
+
+          return interaction.editReply({
+            content: `✅ **Sent $${amountUsd.toFixed(2)} (${amountLtc.toFixed(6)} LTC)** to \`${wallet}\`\nInvites redeemed: **${count}**\nTx: \`${txHash}\``,
+          });
+        }
+
+        if (customId === 'invreward_capes_modal') {
+          const userId      = interaction.user.id;
+          const inviteCount = interaction.fields.getTextInputValue('invite_count').trim();
+          const capeRequest = interaction.fields.getTextInputValue('cape_request').trim();
+
+          const count = parseInt(inviteCount, 10);
+          if (!Number.isInteger(count) || count <= 0) {
+            return await interaction.reply({ content: '❌ Enter a whole number greater than 0.', ephemeral: true });
+          }
+
+          const reserved = await claimInvites(userId, count);
+          if (!reserved) {
+            return await interaction.reply({ content: "❌ You don't have that many invites available to claim.", ephemeral: true });
+          }
+
+          try {
+            return await createTicket(interaction, 'inviterewards', {
+              channelName: `capes-invitereward-${sanitizeName(interaction.user.username)}`,
+              formFields: [
+                { label: '🎭 Claim Type',          value: 'Capes' },
+                { label: '📨 Invites Claimed',      value: inviteCount },
+                { label: '🎁 Cape(s) Requested',    value: capeRequest },
+              ],
+            });
+          } catch (e) {
+            await refundInvites(userId, count);
+            throw e;
+          }
         }
 
         if (customId === 'cape_checkout_modal') {
