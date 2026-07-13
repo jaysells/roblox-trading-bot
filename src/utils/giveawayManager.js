@@ -1,18 +1,47 @@
 const redis = require('./redis');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { CUSTOMER_ROLE_ID } = require('./permissions');
 
 const timers = new Map();
 
+async function isEligibleWinner(guild, userId, requireCustomerRole) {
+  if (!requireCustomerRole) return true;
+  if (!guild) return false;
+  let member = guild.members.cache.get(userId);
+  if (!member) member = await guild.members.fetch(userId).catch(() => null);
+  return !!member && member.roles.cache.has(CUSTOMER_ROLE_ID);
+}
+
+// Draws winners at random from the pool, skipping (and permanently excluding)
+// anyone who fails the customer-role check — effectively "reroll until the
+// winner has the role" — until enough winners are found or entries run out.
+async function pickEligibleWinners(guild, entries, winnerCount, requireCustomerRole) {
+  const pool = [...entries];
+  const winners = [];
+  while (winners.length < winnerCount && pool.length > 0) {
+    const idx = Math.floor(Math.random() * pool.length);
+    const candidate = pool.splice(idx, 1)[0];
+    if (await isEligibleWinner(guild, candidate, requireCustomerRole)) {
+      winners.push(candidate);
+    }
+  }
+  return winners;
+}
+
 function buildGiveawayEmbed(giveaway) {
   const endUnix = Math.floor(giveaway.endTime / 1000);
+  const fields = [
+    { name: '🏆 Winners', value: String(giveaway.winners), inline: true },
+    { name: '👥 Entries', value: String((giveaway.entries || []).length), inline: true },
+    { name: '⏰ Ends', value: `<t:${endUnix}:R>`, inline: true },
+  ];
+  if (giveaway.requireCustomerRole) {
+    fields.push({ name: '🔒 Requirement', value: `Winner must have <@&${CUSTOMER_ROLE_ID}>`, inline: false });
+  }
   return new EmbedBuilder()
     .setTitle(`🎉 GIVEAWAY: ${giveaway.prize}`)
     .setDescription(giveaway.description || '​')
-    .addFields(
-      { name: '🏆 Winners', value: String(giveaway.winners), inline: true },
-      { name: '👥 Entries', value: String((giveaway.entries || []).length), inline: true },
-      { name: '⏰ Ends', value: `<t:${endUnix}:R>`, inline: true }
-    )
+    .addFields(fields)
     .setColor(0xF4D03F)
     .setFooter({ text: 'Click the button below to enter!' })
     .setTimestamp(new Date(giveaway.endTime));
@@ -60,13 +89,8 @@ async function endGiveaway(client, giveawayId) {
 
     const entries = await redis.smembers(`giveaway:${giveawayId}:entries`) || [];
     console.log(`[Giveaway] Ending ${giveawayId} | Entries (${entries.length}):`, entries);
-    const winnerCount = Math.min(giveaway.winners, entries.length);
-    const pool = [...entries];
-    const winners = [];
-    for (let i = 0; i < winnerCount; i++) {
-      const idx = Math.floor(Math.random() * pool.length);
-      winners.push(pool.splice(idx, 1)[0]);
-    }
+    const guild   = client.guilds.cache.get(giveaway.guildId);
+    const winners = await pickEligibleWinners(guild, entries, giveaway.winners, giveaway.requireCustomerRole);
     console.log(`[Giveaway] Winners:`, winners);
 
     giveaway.ended = true;
@@ -106,6 +130,8 @@ async function endGiveaway(client, giveawayId) {
 
     if (winners.length > 0) {
       await channel.send(`🎉 Congratulations ${winners.map(id => `<@${id}>`).join(', ')}! You won **${giveaway.prize}**!`).catch(() => {});
+    } else if (giveaway.requireCustomerRole && entries.length > 0) {
+      await channel.send(`The giveaway for **${giveaway.prize}** has ended with no eligible winner — no entrant had the required <@&${CUSTOMER_ROLE_ID}> role.`).catch(() => {});
     } else {
       await channel.send(`The giveaway for **${giveaway.prize}** has ended with no entries.`).catch(() => {});
     }
@@ -139,4 +165,4 @@ async function resumeGiveaways(client) {
   }
 }
 
-module.exports = { buildGiveawayEmbed, startGiveawayTimers, endGiveaway, resumeGiveaways };
+module.exports = { buildGiveawayEmbed, startGiveawayTimers, endGiveaway, resumeGiveaways, isEligibleWinner, pickEligibleWinners };

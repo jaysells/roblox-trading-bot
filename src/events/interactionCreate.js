@@ -10,11 +10,12 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const redis = require('../utils/redis');
-const { hasPermission, STAFF_ROLE_ID } = require('../utils/permissions');
+const { hasPermission, STAFF_ROLE_ID, CUSTOMER_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
 const { getInviterStats, claimInvites, refundInvites } = require('../utils/inviteTracker');
 const { isValidLtcAddress, sendLtc } = require('../utils/ltcWallet');
 const { getLTCPrice, LOG_CHANNEL_ID } = require('../utils/ltcPoller');
+const { getStoreCreditCents, addStoreCreditCents, getStoreCreditCap } = require('../utils/storeCredit');
 const {
   handleCapeSelect,
   handleAddMore,
@@ -32,6 +33,7 @@ const {
 } = require('../utils/capeShop');
 
 const MONEY_PER_INVITE_USD = 0.05;
+const STORE_CREDIT_CENTS_PER_INVITE = 7.5;
 
 function sanitizeName(str) {
   return str
@@ -231,6 +233,9 @@ module.exports = {
         if (customId === 'cape_wallet_change')   return await handleWalletChange(interaction, client);
 
         if (customId === 'invreward_claim_money') {
+          if (!interaction.member.roles.cache.has(CUSTOMER_ROLE_ID)) {
+            return await interaction.reply({ content: `❌ You need the <@&${CUSTOMER_ROLE_ID}> role (make a purchase first) to claim invite rewards.`, ephemeral: true });
+          }
           const stats = await getInviterStats(interaction.user.id);
           if (stats.claimable <= 0) {
             return await interaction.reply({ content: "❌ You don't have any invites to claim yet.", ephemeral: true });
@@ -249,17 +254,17 @@ module.exports = {
         }
 
         if (customId === 'invreward_claim_capes') {
+          if (!interaction.member.roles.cache.has(CUSTOMER_ROLE_ID)) {
+            return await interaction.reply({ content: `❌ You need the <@&${CUSTOMER_ROLE_ID}> role (make a purchase first) to claim invite rewards.`, ephemeral: true });
+          }
           const stats = await getInviterStats(interaction.user.id);
           if (stats.claimable <= 0) {
             return await interaction.reply({ content: "❌ You don't have any invites to claim yet.", ephemeral: true });
           }
-          const modal = new ModalBuilder().setCustomId('invreward_capes_modal').setTitle('Claim Invite Rewards — Capes');
+          const modal = new ModalBuilder().setCustomId('invreward_capes_modal').setTitle('Claim Invite Rewards — Store Credit');
           modal.addComponents(
             new ActionRowBuilder().addComponents(
               new TextInputBuilder().setCustomId('invite_count').setLabel(`Invites to claim (${stats.claimable} available)`).setStyle(TextInputStyle.Short).setRequired(true).setValue(String(stats.claimable))
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder().setCustomId('cape_request').setLabel('Which cape(s) would you like?').setStyle(TextInputStyle.Paragraph).setRequired(true).setPlaceholder('e.g. 2x Dragon Cape')
             )
           );
           return await interaction.showModal(modal);
@@ -431,33 +436,54 @@ module.exports = {
         }
 
         if (customId === 'invreward_capes_modal') {
-          const userId      = interaction.user.id;
-          const inviteCount = interaction.fields.getTextInputValue('invite_count').trim();
-          const capeRequest = interaction.fields.getTextInputValue('cape_request').trim();
+          await interaction.deferReply({ ephemeral: true });
 
-          const count = parseInt(inviteCount, 10);
+          const userId = interaction.user.id;
+          const count  = parseInt(interaction.fields.getTextInputValue('invite_count').trim(), 10);
           if (!Number.isInteger(count) || count <= 0) {
-            return await interaction.reply({ content: '❌ Enter a whole number greater than 0.', ephemeral: true });
+            return interaction.editReply({ content: '❌ Enter a whole number greater than 0.' });
           }
 
           const reserved = await claimInvites(userId, count);
           if (!reserved) {
-            return await interaction.reply({ content: "❌ You don't have that many invites available to claim.", ephemeral: true });
+            return interaction.editReply({ content: "❌ You don't have that many invites available to claim." });
           }
 
-          try {
-            return await createTicket(interaction, 'inviterewards', {
-              channelName: `capes-invitereward-${sanitizeName(interaction.user.username)}`,
-              formFields: [
-                { label: '🎭 Claim Type',          value: 'Capes' },
-                { label: '📨 Invites Claimed',      value: inviteCount },
-                { label: '🎁 Cape(s) Requested',    value: capeRequest },
-              ],
-            });
-          } catch (e) {
+          const creditCents = Math.round(count * STORE_CREDIT_CENTS_PER_INVITE);
+          const cap = await getStoreCreditCap();
+          const currentBalance = await getStoreCreditCents(userId);
+
+          if (cap != null && currentBalance + creditCents > cap) {
             await refundInvites(userId, count);
-            throw e;
+            return interaction.editReply({
+              content: `❌ That would put you over the store credit cap of $${(cap / 100).toFixed(2)} (you currently have $${(currentBalance / 100).toFixed(2)}). Claim fewer invites or spend some existing credit first.`,
+            });
           }
+
+          await addStoreCreditCents(userId, creditCents);
+          const newBalance = await getStoreCreditCents(userId);
+
+          const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
+          if (logChannel) {
+            await logChannel.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setTitle('📨 Invite Reward Paid — Store Credit')
+                  .setColor(0x57F287)
+                  .addFields(
+                    { name: 'User',            value: `<@${userId}>`, inline: true },
+                    { name: 'Invites Claimed', value: `${count}`,     inline: true },
+                    { name: 'Credit Added',    value: `$${(creditCents / 100).toFixed(2)}`, inline: true },
+                    { name: 'New Balance',     value: `$${(newBalance / 100).toFixed(2)}`,  inline: true },
+                  )
+                  .setTimestamp(),
+              ],
+            }).catch(() => {});
+          }
+
+          return interaction.editReply({
+            content: `✅ Added **$${(creditCents / 100).toFixed(2)}** in store credit for **${count}** invites.\nNew store credit balance: **$${(newBalance / 100).toFixed(2)}**`,
+          });
         }
 
         if (customId === 'cape_checkout_modal') {

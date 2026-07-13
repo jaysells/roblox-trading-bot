@@ -6,6 +6,8 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const redis = require('./redis');
+const { CUSTOMER_ROLE_ID } = require('./permissions');
+const { addStoreCreditCents } = require('./storeCredit');
 
 const LOG_CHANNEL_ID   = '1524672603585904742';
 const VOUCH_CHANNEL_ID = '1499195804903280812';
@@ -66,6 +68,19 @@ async function refundDiscountUse(code, maxUses) {
   const newVal = await redis.incr(`discount:${code}:usesleft`);
   if (typeof maxUses === 'number' && newVal > maxUses) {
     await redis.set(`discount:${code}:usesleft`, maxUses);
+  }
+}
+
+async function grantCustomerRole(client, guildId, userId) {
+  if (!guildId) return;
+  try {
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return;
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member || member.roles.cache.has(CUSTOMER_ROLE_ID)) return;
+    await member.roles.add(CUSTOMER_ROLE_ID).catch(() => {});
+  } catch (e) {
+    console.error('[completePurchase] Failed to grant customer role:', e.message);
   }
 }
 
@@ -150,7 +165,9 @@ async function updateCapeStockMessage(client) {
 }
 
 async function completePurchase(client, userId, pending, txHash) {
-  await redis.set(`ltc:seen:${txHash}`, '1', { ex: 86400 });
+  if (txHash) await redis.set(`ltc:seen:${txHash}`, '1', { ex: 86400 });
+
+  await grantCustomerRole(client, pending.guildId, userId);
 
   const codes = pending.reservedCodes || [];
 
@@ -183,16 +200,22 @@ async function completePurchase(client, userId, pending, txHash) {
   const logChannel = client.channels.cache.get(LOG_CHANNEL_ID);
   if (logChannel) {
     const codeLines = codes.length > 0 ? codes.map(c => `${c.emoji} ${c.name}: \`${c.code}\``).join('\n') : 'N/A';
+    const fields = [
+      { name: 'User',  value: `<@${userId}>`,                                              inline: true  },
+      { name: 'Total', value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true  },
+    ];
+    if (pending.creditApplied) {
+      fields.push({ name: 'Store Credit Used', value: `$${(pending.creditApplied / 100).toFixed(2)}`, inline: true });
+    }
+    fields.push(
+      { name: 'Items', value: pending.items.map(i => `${i.emoji} ${i.name}`).join('\n'), inline: false },
+      { name: 'Codes', value: codeLines,                                                 inline: false },
+      { name: 'TX',    value: txHash ? `\`${txHash}\`` : '*(covered by store credit)*',   inline: false }
+    );
     const embed = new EmbedBuilder()
       .setTitle('💰 Cape Purchase Confirmed')
       .setColor(0x57F287)
-      .addFields(
-        { name: 'User',  value: `<@${userId}>`,                                              inline: true  },
-        { name: 'Total', value: `$${pending.totalUSD.toFixed(2)} | ${pending.totalLTC} LTC`, inline: true  },
-        { name: 'Items', value: pending.items.map(i => `${i.emoji} ${i.name}`).join('\n'),   inline: false },
-        { name: 'Codes', value: codeLines,                                                   inline: false },
-        { name: 'TX',    value: `\`${txHash}\``,                                             inline: false }
-      )
+      .addFields(fields)
       .setTimestamp();
     await logChannel.send({ embeds: [embed] }).catch(() => {});
   }
@@ -238,6 +261,9 @@ async function checkPendingPayments(client) {
             await refundDiscountUse(pending.discountCode, discount.uses);
           }
         }
+      }
+      if (pending.creditApplied) {
+        await addStoreCreditCents(userId, pending.creditApplied);
       }
       await redis.del(key);
       await updateCapeStockMessage(client);
@@ -331,4 +357,4 @@ function startPoller(client) {
   console.log('[LTC Poller] Started.');
 }
 
-module.exports = { startPoller, getLTCPrice, updateCapeStockMessage, LOG_CHANNEL_ID };
+module.exports = { startPoller, getLTCPrice, updateCapeStockMessage, completePurchase, LOG_CHANNEL_ID };

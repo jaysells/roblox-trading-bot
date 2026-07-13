@@ -9,8 +9,9 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const redis = require('./redis');
-const { getLTCPrice, updateCapeStockMessage, LOG_CHANNEL_ID } = require('./ltcPoller');
+const { getLTCPrice, updateCapeStockMessage, completePurchase, LOG_CHANNEL_ID } = require('./ltcPoller');
 const { isValidLtcAddress } = require('./ltcWallet');
+const { getStoreCreditCents, addStoreCreditCents, spendStoreCreditCents } = require('./storeCredit');
 
 const CART_LOG_CHANNEL_ID   = '1525417940151701505';
 const WALLET_LOG_CHANNEL_ID = '1525417994140913724';
@@ -553,6 +554,44 @@ async function handleCheckoutModal(interaction, client) {
       : `$${discount.value.toFixed(2)} off`;
   }
 
+  // Apply store credit against the (post-discount) total. Spent atomically
+  // after reservation/discount succeed; refunded — along with the reserved
+  // codes and discount use — if we lose a race for the credit.
+  const totalCentsBeforeCredit = Math.round(totalUSD * 100);
+  const creditAvailableCents   = await getStoreCreditCents(userId);
+  const creditToApplyCents     = Math.min(creditAvailableCents, totalCentsBeforeCredit);
+
+  if (creditToApplyCents > 0) {
+    const spent = await spendStoreCreditCents(userId, creditToApplyCents);
+    if (!spent) {
+      for (const r of reservedCodes) {
+        await redis.rpush(`cape:${r.capeId}:codes`, r.code);
+        await syncStock(r.capeId);
+      }
+      if (discount && !discount.unlimited) {
+        await refundDiscountUse(discount.code, discount.uses);
+      }
+      await updateCapeStockMessage(client);
+      return interaction.editReply({ content: '❌ Your store credit balance changed. Please checkout again.' });
+    }
+  }
+
+  totalUSD = (totalCentsBeforeCredit - creditToApplyCents) / 100;
+
+  // Fully covered by store credit — no LTC payment needed, deliver instantly.
+  if (totalUSD <= 0) {
+    await redis.del(`cart:${userId}`);
+    await completePurchase(client, userId, {
+      items: cart,
+      reservedCodes,
+      totalUSD: 0,
+      totalLTC: 0,
+      creditApplied: creditToApplyCents,
+      guildId: interaction.guildId,
+    }, null);
+    return interaction.editReply({ content: `✅ Covered entirely by store credit ($${(creditToApplyCents / 100).toFixed(2)})! Check your DMs for your codes.` });
+  }
+
   const totalLTC  = (totalUSD / ltcPrice).toFixed(8);
   const now       = Date.now();
   const expiresAt = now + 3 * 60 * 1000;
@@ -569,20 +608,27 @@ async function handleCheckoutModal(interaction, client) {
     expiresAt,
     detectedTxHash: null,
     discountCode: discount ? discount.code : null,
+    creditApplied: creditToApplyCents,
+    guildId: interaction.guildId,
   };
 
   await redis.set(`ltc:pending:${userId}`, JSON.stringify(pending), { ex: PENDING_TTL });
   await redis.del(`cart:${userId}`);
 
+  const startedFields = [
+    { name: 'User',   value: `<@${userId}>`, inline: true },
+    { name: 'Wallet', value: `\`${buyerAddress}\``, inline: true },
+    { name: 'Total',  value: `$${totalUSD.toFixed(2)} | ${totalLTC} LTC`, inline: true },
+  ];
+  if (creditToApplyCents > 0) {
+    startedFields.push({ name: 'Store Credit Used', value: `$${(creditToApplyCents / 100).toFixed(2)}`, inline: true });
+  }
+  startedFields.push({ name: 'Cart', value: cartLines(cart), inline: false });
+
   await logToChannel(client, LOG_CHANNEL_ID, new EmbedBuilder()
     .setTitle('🧾 Checkout Started')
     .setColor(0xF1C40F)
-    .addFields(
-      { name: 'User',   value: `<@${userId}>`, inline: true },
-      { name: 'Wallet', value: `\`${buyerAddress}\``, inline: true },
-      { name: 'Total',  value: `$${totalUSD.toFixed(2)} | ${totalLTC} LTC`, inline: true },
-      { name: 'Cart',   value: cartLines(cart), inline: false },
-    )
+    .addFields(startedFields)
     .setFooter({ text: '3-minute payment window' })
     .setTimestamp());
 
@@ -597,6 +643,10 @@ async function handleCheckoutModal(interaction, client) {
 
   if (discount) {
     fields.push({ name: '🏷️ Discount', value: `\`${discount.code}\` — ${discountText}`, inline: false });
+  }
+
+  if (creditToApplyCents > 0) {
+    fields.push({ name: '💳 Store Credit Applied', value: `-$${(creditToApplyCents / 100).toFixed(2)}`, inline: false });
   }
 
   fields.push(
@@ -642,6 +692,9 @@ async function handleCancelCheckout(interaction, client) {
           await refundDiscountUse(pending.discountCode, discount.uses);
         }
       }
+    }
+    if (pending.creditApplied) {
+      await addStoreCreditCents(userId, pending.creditApplied);
     }
     await redis.del(`ltc:pending:${userId}`);
     await updateCapeStockMessage(client);

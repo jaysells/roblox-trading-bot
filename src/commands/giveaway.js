@@ -54,6 +54,14 @@ module.exports = {
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
           .setPlaceholder('e.g. 1')
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('require_customer_role')
+          .setLabel('Require Customer role to win? (yes/no)')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setPlaceholder('no')
       )
     );
 
@@ -65,6 +73,7 @@ module.exports = {
     const description = interaction.fields.getTextInputValue('description') || '';
     const duration = parseInt(interaction.fields.getTextInputValue('duration'), 10);
     const winners = parseInt(interaction.fields.getTextInputValue('winners'), 10);
+    const requireCustomerRole = /^y/i.test(interaction.fields.getTextInputValue('require_customer_role') || '');
 
     if (isNaN(duration) || duration <= 0) {
       return interaction.reply({ content: 'Invalid duration. Enter a positive number of minutes.', ephemeral: true });
@@ -87,6 +96,7 @@ module.exports = {
       entries: [],
       ended: false,
       selectedWinners: [],
+      requireCustomerRole,
     };
 
     const row = new ActionRowBuilder().addComponents(

@@ -1,4 +1,5 @@
 const bitcore = require('bitcore-lib-ltc');
+const { getLTCPrice } = require('./ltcPoller');
 
 const FETCH_TIMEOUT_MS = 15_000;
 const NETWORK_FEE_SATOSHIS = 10_000; // ~0.0001 LTC
@@ -67,4 +68,17 @@ async function sendLtc(toAddress, amountLtc) {
   return pushData.tx?.hash || pushData.hash;
 }
 
-module.exports = { isValidLtcAddress, getBotLtcAddress, sendLtc };
+async function getBotLtcBalanceUsd() {
+  const address = getBotLtcAddress();
+  const res = await fetch(
+    withToken(`https://api.blockcypher.com/v1/ltc/main/addrs/${address}/balance`),
+    { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }
+  );
+  if (!res.ok) throw new Error(`BlockCypher balance lookup failed (${res.status})`);
+  const data = await res.json();
+  const balanceLtc = (data.final_balance || 0) / 1e8;
+  const ltcPrice = await getLTCPrice();
+  return balanceLtc * ltcPrice;
+}
+
+module.exports = { isValidLtcAddress, getBotLtcAddress, sendLtc, getBotLtcBalanceUsd };

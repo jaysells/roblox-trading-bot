@@ -2,6 +2,7 @@ const { AUTO_ROLE_ID } = require('../utils/permissions');
 const { resumeGiveaways } = require('../utils/giveawayManager');
 const { startPoller } = require('../utils/ltcPoller');
 const { cacheGuildInvites, startPendingJoinSweeper } = require('../utils/inviteTracker');
+const { startPayoutChannelUpdater } = require('../utils/payoutChannels');
 
 const KEEPALIVE_CHANNELS = [
   '1499195096447582228',
@@ -36,6 +37,7 @@ module.exports = {
     await resumeGiveaways(client);
     startPoller(client);
     startPendingJoinSweeper(client);
+    startPayoutChannelUpdater(client);
 
     for (const [, guild] of client.guilds.cache) {
       try {

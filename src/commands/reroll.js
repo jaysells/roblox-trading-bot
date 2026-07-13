@@ -5,6 +5,7 @@ const {
   StringSelectMenuOptionBuilder,
 } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
+const { pickEligibleWinners } = require('../utils/giveawayManager');
 const redis = require('../utils/redis');
 
 module.exports = {
@@ -71,7 +72,12 @@ module.exports = {
       return interaction.editReply({ content: 'No eligible entries left to reroll.', components: [] });
     }
 
-    const newWinner = pool[Math.floor(Math.random() * pool.length)];
+    const guild = client.guilds.cache.get(giveaway.guildId);
+    const [newWinner] = await pickEligibleWinners(guild, pool, 1, giveaway.requireCustomerRole);
+    if (!newWinner) {
+      return interaction.editReply({ content: 'No remaining entrant meets the requirements for this giveaway (e.g. Customer role).', components: [] });
+    }
+
     giveaway.selectedWinners = [...(giveaway.selectedWinners || []), newWinner];
     await redis.set(`giveaway:${giveawayId}`, JSON.stringify(giveaway));
 
