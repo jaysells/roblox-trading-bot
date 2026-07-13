@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { isDev } = require('../utils/permissions');
+const { hasPermission } = require('../utils/permissions');
 const { isValidLtcAddress, getBotLtcAddress, sendLtc } = require('../utils/ltcWallet');
 const { getLTCPrice } = require('../utils/ltcPoller');
 
@@ -24,7 +24,7 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    if (!isDev(interaction.user.id)) {
+    if (!hasPermission(interaction.member)) {
       return interaction.reply({ content: 'You are not authorized to use this command.', ephemeral: true });
     }
 

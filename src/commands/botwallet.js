@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { isDev } = require('../utils/permissions');
+const { hasPermission } = require('../utils/permissions');
 const { getBotLtcAddress } = require('../utils/ltcWallet');
 
 module.exports = {
@@ -8,7 +8,7 @@ module.exports = {
     .setDescription('Show the bot\'s LTC payout wallet address (fund this to enable /tip and invite payouts)'),
 
   async execute(interaction) {
-    if (!isDev(interaction.user.id)) {
+    if (!hasPermission(interaction.member)) {
       return interaction.reply({ content: 'You are not authorized to use this command.', ephemeral: true });
     }
 
