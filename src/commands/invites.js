@@ -1,5 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { hasPermission } = require('../utils/permissions');
 const { getInviterStats } = require('../utils/inviteTracker');
 
 module.exports = {
@@ -9,10 +8,6 @@ module.exports = {
     .addUserOption(o => o.setName('user').setDescription('Member to check (defaults to you)').setRequired(false)),
 
   async execute(interaction) {
-    if (!hasPermission(interaction.member)) {
-      return interaction.reply({ content: 'No permission.', ephemeral: true });
-    }
-
     const target = interaction.options.getUser('user') || interaction.user;
     const stats  = await getInviterStats(target.id);
 
