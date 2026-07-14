@@ -2,7 +2,7 @@ const { AUTO_ROLE_ID } = require('../utils/permissions');
 const { resumeGiveaways } = require('../utils/giveawayManager');
 const { startPoller } = require('../utils/ltcPoller');
 const { cacheGuildInvites, startPendingJoinSweeper } = require('../utils/inviteTracker');
-const { startPayoutChannelUpdater } = require('../utils/payoutChannels');
+const inviterewardspanel = require('../commands/inviterewardspanel');
 
 const KEEPALIVE_CHANNELS = [
   '1499195096447582228',
@@ -11,6 +11,7 @@ const KEEPALIVE_CHANNELS = [
   '1510154600072745121',
 ];
 const INTERVAL_MS = 90 * 60 * 1000; // 1.5 hours
+const PANEL_UPDATE_INTERVAL_MS = 10 * 60 * 1000;
 
 async function ping(client) {
   for (const channelId of KEEPALIVE_CHANNELS) {
@@ -37,7 +38,12 @@ module.exports = {
     await resumeGiveaways(client);
     startPoller(client);
     startPendingJoinSweeper(client);
-    startPayoutChannelUpdater(client);
+
+    inviterewardspanel.updatePanel(client).catch(e => console.error('[inviterewardspanel] Initial update failed:', e.message));
+    setInterval(
+      () => inviterewardspanel.updatePanel(client).catch(e => console.error('[inviterewardspanel] Update failed:', e.message)),
+      PANEL_UPDATE_INTERVAL_MS
+    );
 
     for (const [, guild] of client.guilds.cache) {
       try {
