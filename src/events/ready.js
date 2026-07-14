@@ -46,6 +46,12 @@ module.exports = {
     );
 
     for (const [, guild] of client.guilds.cache) {
+      // Always cache invites first — this used to sit after the auto-role
+      // sync below, but that block's `continue` (for guilds with no
+      // AUTO_ROLE_ID role configured) skipped it entirely, leaving those
+      // guilds' invite cache permanently empty.
+      await cacheGuildInvites(guild);
+
       try {
         await guild.members.fetch();
         const role = guild.roles.cache.get(AUTO_ROLE_ID);
@@ -58,8 +64,6 @@ module.exports = {
       } catch (e) {
         console.error(`Error syncing auto role in ${guild.name}:`, e.message);
       }
-
-      await cacheGuildInvites(guild);
     }
 
     console.log('Ready. Auto role sync complete.');

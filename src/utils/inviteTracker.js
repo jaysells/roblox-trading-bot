@@ -143,7 +143,17 @@ async function refundInvites(inviterId, count) {
 // out which invite was used. Falls back to detecting a single-use invite
 // that vanished (deleted the instant it hit its use cap).
 async function findUsedInviterId(guild) {
-  const oldMap = inviteCache.get(guild.id) || new Map();
+  const oldMap = inviteCache.get(guild.id);
+
+  if (!oldMap || oldMap.size === 0) {
+    // No reliable baseline to diff against — defaulting every uncached code
+    // to "0 uses" here would attribute to whichever invite merely has ANY
+    // uses at all (not necessarily the one just used), which can silently
+    // misattribute or land on an invite with no inviter (null) forever.
+    // Resync now and skip attribution for this one join instead of guessing.
+    await cacheGuildInvites(guild);
+    return null;
+  }
 
   let newInvites;
   try {
