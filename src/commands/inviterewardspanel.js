@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 const { hasPermission, CUSTOMER_ROLE_ID } = require('../utils/permissions');
 const redis = require('../utils/redis');
 const { getBotLtcBalanceUsd } = require('../utils/ltcWallet');
-const { getTotalStoreCreditCents } = require('../utils/storeCredit');
+const { getTotalStoreCreditCents, getStoreCreditCap } = require('../utils/storeCredit');
 
 const PANEL_MESSAGE_KEY = 'inviterewardpanel:message';
 
@@ -31,6 +31,10 @@ async function buildBalancesEmbed() {
     console.error('[inviterewardspanel] LTC balance fetch failed:', e.message);
   }
   const scCents = await getTotalStoreCreditCents();
+  const capCents = await getStoreCreditCap();
+  const remainingText = capCents != null
+    ? `$${Math.max(0, (capCents - scCents) / 100).toFixed(2)}`
+    : 'Unlimited';
 
   return new EmbedBuilder()
     .setTitle('💳 Payout Balances')
@@ -38,6 +42,7 @@ async function buildBalancesEmbed() {
     .addFields(
       { name: '🪙 LTC Wallet',              value: ltcUsd != null ? `$${Math.round(ltcUsd)}` : '*(unavailable)*', inline: true },
       { name: '🏪 Store Credit Outstanding', value: `$${Math.round(scCents / 100)}`, inline: true },
+      { name: '📈 Store Credit Remaining',   value: remainingText, inline: true },
     )
     .setTimestamp();
 }
