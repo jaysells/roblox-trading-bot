@@ -13,7 +13,7 @@ const redis = require('../utils/redis');
 const { hasPermission, STAFF_ROLE_ID, CUSTOMER_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
 const { getInviterStats, claimInvites, refundInvites } = require('../utils/inviteTracker');
-const { isValidLtcAddress, sendLtc } = require('../utils/ltcWallet');
+const { isValidLtcAddress, sendLtc, getSpendLimitUsd, getSpentTodayUsd, reserveSpend, refundSpend } = require('../utils/ltcWallet');
 const { getLTCPrice, LOG_CHANNEL_ID } = require('../utils/ltcPoller');
 const { getStoreCreditCents, addStoreCreditCents, getStoreCreditCap } = require('../utils/storeCredit');
 const {
@@ -402,11 +402,22 @@ module.exports = {
           const amountUsd = count * MONEY_PER_INVITE_USD;
           const amountLtc = amountUsd / ltcPrice;
 
+          const spendLimit = await getSpendLimitUsd();
+          if (spendLimit != null) {
+            const spendReserved = await reserveSpend(amountUsd);
+            if (!spendReserved) {
+              await refundInvites(userId, count);
+              const spentToday = await getSpentTodayUsd();
+              return interaction.editReply({ content: `❌ Today's LTC payout limit ($${spendLimit.toFixed(2)}, already spent $${spentToday.toFixed(2)}) has been reached. Try again tomorrow or contact staff.` });
+            }
+          }
+
           let txHash;
           try {
             txHash = await sendLtc(wallet, amountLtc);
           } catch (e) {
             await refundInvites(userId, count);
+            if (spendLimit != null) await refundSpend(amountUsd);
             console.error('[inviterewards] LTC payout failed:', e.message);
             return interaction.editReply({ content: `❌ Payout failed (${e.message}). Your invites were not used — try again or contact staff.` });
           }

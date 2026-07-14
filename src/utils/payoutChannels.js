@@ -26,8 +26,8 @@ async function ensurePayoutChannel(guild, redisKey, initialName) {
 async function updatePayoutChannels(client) {
   for (const [, guild] of client.guilds.cache) {
     try {
-      const ltcChannel = await ensurePayoutChannel(guild, 'payoutchannel:ltc', 'Payouts in LTC 0$');
-      const scChannel  = await ensurePayoutChannel(guild, 'payoutchannel:sc', 'Payouts in SC 0$');
+      const ltcChannel = await ensurePayoutChannel(guild, 'payoutchannel:ltc', 'Payouts in LTC 0');
+      const scChannel  = await ensurePayoutChannel(guild, 'payoutchannel:sc', 'Payouts in SC 0');
 
       let ltcUsd = null;
       try {
@@ -39,10 +39,10 @@ async function updatePayoutChannels(client) {
       const scCents = await getTotalStoreCreditCents();
 
       if (ltcChannel && ltcUsd != null) {
-        await ltcChannel.setName(`Payouts in LTC ${Math.round(ltcUsd)}$`).catch(() => {});
+        await ltcChannel.setName(`Payouts in LTC ${Math.round(ltcUsd)}`).catch(() => {});
       }
       if (scChannel) {
-        await scChannel.setName(`Payouts in SC ${Math.round(scCents / 100)}$`).catch(() => {});
+        await scChannel.setName(`Payouts in SC ${Math.round(scCents / 100)}`).catch(() => {});
       }
     } catch (e) {
       console.error(`[payouts] Failed to update payout channels in ${guild.name}:`, e.message);

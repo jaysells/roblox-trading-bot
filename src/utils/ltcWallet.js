@@ -1,5 +1,6 @@
 const bitcore = require('bitcore-lib-ltc');
 const { getLTCPrice } = require('./ltcPoller');
+const redis = require('./redis');
 
 const FETCH_TIMEOUT_MS = 15_000;
 const NETWORK_FEE_SATOSHIS = 10_000; // ~0.0001 LTC
@@ -81,4 +82,65 @@ async function getBotLtcBalanceUsd() {
   return balanceLtc * ltcPrice;
 }
 
-module.exports = { isValidLtcAddress, getBotLtcAddress, sendLtc, getBotLtcBalanceUsd };
+// Daily spend limit — protects the hot wallet from a bug or exploit draining
+// it all at once. Enforced across every send path (`/tip` and automatic
+// invite-money payouts) via reserveSpend/refundSpend below.
+
+async function getSpendLimitUsd() {
+  const raw = await redis.get('ltc:spendlimit');
+  return raw == null ? null : parseFloat(raw);
+}
+
+async function setSpendLimitUsd(amountUsd) {
+  if (amountUsd == null) {
+    await redis.del('ltc:spendlimit');
+  } else {
+    await redis.set('ltc:spendlimit', amountUsd);
+  }
+}
+
+function spendDateKey() {
+  return `ltc:spent:${new Date().toISOString().slice(0, 10)}`; // UTC calendar day
+}
+
+async function getSpentTodayUsd() {
+  const raw = await redis.get(spendDateKey());
+  return (parseInt(raw, 10) || 0) / 100;
+}
+
+// Atomically reserves `amountUsd` against today's running total if it fits
+// within the configured limit (no limit set = unlimited). Rolls back and
+// returns false if it would exceed the limit. Callers must call
+// refundSpend(amountUsd) if the send itself subsequently fails.
+async function reserveSpend(amountUsd) {
+  const limit = await getSpendLimitUsd();
+  if (limit == null) return true;
+
+  const cents = Math.round(amountUsd * 100);
+  const key = spendDateKey();
+  const newTotalCents = await redis.incrby(key, cents);
+  await redis.expire(key, 2 * 24 * 60 * 60); // safety-margin TTL so old days don't linger
+
+  if (newTotalCents > Math.round(limit * 100)) {
+    await redis.incrby(key, -cents);
+    return false;
+  }
+  return true;
+}
+
+async function refundSpend(amountUsd) {
+  if (!amountUsd) return;
+  await redis.incrby(spendDateKey(), -Math.round(amountUsd * 100));
+}
+
+module.exports = {
+  isValidLtcAddress,
+  getBotLtcAddress,
+  sendLtc,
+  getBotLtcBalanceUsd,
+  getSpendLimitUsd,
+  setSpendLimitUsd,
+  getSpentTodayUsd,
+  reserveSpend,
+  refundSpend,
+};
