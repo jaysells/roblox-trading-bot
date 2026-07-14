@@ -82,9 +82,11 @@ async function getBotLtcBalanceUsd() {
   return balanceLtc * ltcPrice;
 }
 
-// Daily spend limit — protects the hot wallet from a bug or exploit draining
-// it all at once. Enforced across every send path (`/tip` and automatic
-// invite-money payouts) via reserveSpend/refundSpend below.
+// Overall (lifetime, non-resetting) spend limit — protects the hot wallet
+// from a bug or exploit draining it all at once. Enforced across every send
+// path (`/tip` and automatic invite-money payouts) via reserveSpend/
+// refundSpend below. Raise the limit (or manually adjust ltc:spent:total) to
+// allow more spending once you've reviewed/topped up the wallet.
 
 async function getSpendLimitUsd() {
   const raw = await redis.get('ltc:spendlimit');
@@ -99,30 +101,24 @@ async function setSpendLimitUsd(amountUsd) {
   }
 }
 
-function spendDateKey() {
-  return `ltc:spent:${new Date().toISOString().slice(0, 10)}`; // UTC calendar day
-}
-
-async function getSpentTodayUsd() {
-  const raw = await redis.get(spendDateKey());
+async function getSpentTotalUsd() {
+  const raw = await redis.get('ltc:spent:total');
   return (parseInt(raw, 10) || 0) / 100;
 }
 
-// Atomically reserves `amountUsd` against today's running total if it fits
-// within the configured limit (no limit set = unlimited). Rolls back and
-// returns false if it would exceed the limit. Callers must call
+// Atomically reserves `amountUsd` against the all-time running total if it
+// fits within the configured limit (no limit set = unlimited). Rolls back
+// and returns false if it would exceed the limit. Callers must call
 // refundSpend(amountUsd) if the send itself subsequently fails.
 async function reserveSpend(amountUsd) {
   const limit = await getSpendLimitUsd();
   if (limit == null) return true;
 
   const cents = Math.round(amountUsd * 100);
-  const key = spendDateKey();
-  const newTotalCents = await redis.incrby(key, cents);
-  await redis.expire(key, 2 * 24 * 60 * 60); // safety-margin TTL so old days don't linger
+  const newTotalCents = await redis.incrby('ltc:spent:total', cents);
 
   if (newTotalCents > Math.round(limit * 100)) {
-    await redis.incrby(key, -cents);
+    await redis.incrby('ltc:spent:total', -cents);
     return false;
   }
   return true;
@@ -130,7 +126,7 @@ async function reserveSpend(amountUsd) {
 
 async function refundSpend(amountUsd) {
   if (!amountUsd) return;
-  await redis.incrby(spendDateKey(), -Math.round(amountUsd * 100));
+  await redis.incrby('ltc:spent:total', -Math.round(amountUsd * 100));
 }
 
 module.exports = {
@@ -140,7 +136,7 @@ module.exports = {
   getBotLtcBalanceUsd,
   getSpendLimitUsd,
   setSpendLimitUsd,
-  getSpentTodayUsd,
+  getSpentTotalUsd,
   reserveSpend,
   refundSpend,
 };

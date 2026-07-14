@@ -13,7 +13,7 @@ const redis = require('../utils/redis');
 const { hasPermission, STAFF_ROLE_ID, CUSTOMER_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
 const { getInviterStats, claimInvites, refundInvites } = require('../utils/inviteTracker');
-const { isValidLtcAddress, sendLtc, getSpendLimitUsd, getSpentTodayUsd, reserveSpend, refundSpend } = require('../utils/ltcWallet');
+const { isValidLtcAddress, sendLtc, getSpendLimitUsd, getSpentTotalUsd, reserveSpend, refundSpend } = require('../utils/ltcWallet');
 const { getLTCPrice, LOG_CHANNEL_ID } = require('../utils/ltcPoller');
 const { getStoreCreditCents, addStoreCreditCents, getStoreCreditCap } = require('../utils/storeCredit');
 const {
@@ -407,8 +407,8 @@ module.exports = {
             const spendReserved = await reserveSpend(amountUsd);
             if (!spendReserved) {
               await refundInvites(userId, count);
-              const spentToday = await getSpentTodayUsd();
-              return interaction.editReply({ content: `❌ Today's LTC payout limit ($${spendLimit.toFixed(2)}, already spent $${spentToday.toFixed(2)}) has been reached. Try again tomorrow or contact staff.` });
+              const spentTotal = await getSpentTotalUsd();
+              return interaction.editReply({ content: `❌ The overall LTC payout limit ($${spendLimit.toFixed(2)}, $${spentTotal.toFixed(2)} sent so far) has been reached. Contact staff.` });
             }
           }
 

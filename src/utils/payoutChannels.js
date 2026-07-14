@@ -7,7 +7,11 @@ const { getTotalStoreCreditCents } = require('./storeCredit');
 // runs on a slow cadence — it's a display, not something needing to be live.
 const UPDATE_INTERVAL_MS = 15 * 60 * 1000;
 
-async function ensurePayoutChannel(guild, redisKey, initialName) {
+async function ensurePayoutChannel(guild, redisKeyBase, initialName) {
+  // Scoped per guild — a shared key across guilds meant guild B's ID would
+  // overwrite guild A's, so A could never find "its" channel again and just
+  // kept creating new ones every cycle.
+  const redisKey = `${redisKeyBase}:${guild.id}`;
   const existingId = await redis.get(redisKey);
   if (existingId) {
     const existing = guild.channels.cache.get(existingId);

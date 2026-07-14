@@ -1,6 +1,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
-const { isValidLtcAddress, getBotLtcAddress, sendLtc, getSpendLimitUsd, getSpentTodayUsd, reserveSpend, refundSpend } = require('../utils/ltcWallet');
+const { isValidLtcAddress, getBotLtcAddress, sendLtc, getSpendLimitUsd, getSpentTotalUsd, reserveSpend, refundSpend } = require('../utils/ltcWallet');
 const { getLTCPrice } = require('../utils/ltcPoller');
 
 module.exports = {
@@ -68,13 +68,13 @@ module.exports = {
 
     const spendLimit = await getSpendLimitUsd();
     if (spendLimit != null && amountUsd == null) {
-      return interaction.editReply({ content: '**Cannot verify the daily spend limit without a USD price.** Try again in a moment.' });
+      return interaction.editReply({ content: '**Cannot verify the spend limit without a USD price.** Try again in a moment.' });
     }
     if (spendLimit != null) {
       const reserved = await reserveSpend(amountUsd);
       if (!reserved) {
-        const spentToday = await getSpentTodayUsd();
-        return interaction.editReply({ content: `❌ This would exceed the daily LTC spend limit ($${spendLimit.toFixed(2)}; already spent $${spentToday.toFixed(2)} today).` });
+        const spentTotal = await getSpentTotalUsd();
+        return interaction.editReply({ content: `❌ This would exceed the overall LTC spend limit ($${spendLimit.toFixed(2)}; $${spentTotal.toFixed(2)} sent so far). Raise the limit with /setltcspendlimit to allow more.` });
       }
     }
 

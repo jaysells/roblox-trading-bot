@@ -1,14 +1,14 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { hasPermission } = require('../utils/permissions');
-const { getSpendLimitUsd, setSpendLimitUsd, getSpentTodayUsd } = require('../utils/ltcWallet');
+const { getSpendLimitUsd, setSpendLimitUsd, getSpentTotalUsd } = require('../utils/ltcWallet');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('setltcspendlimit')
-    .setDescription('Set (or clear) the max USD that can be sent out via LTC per day')
+    .setDescription('Set (or clear) the overall max USD that can ever be sent out via LTC')
     .addNumberOption(o =>
       o.setName('amount')
-        .setDescription('Max USD per day (omit to remove the limit)')
+        .setDescription('Max total USD ever (omit to remove the limit)')
         .setRequired(false)
         .setMinValue(0)
     ),
@@ -22,22 +22,22 @@ module.exports = {
 
     if (amount == null) {
       await setSpendLimitUsd(null);
-      return interaction.reply({ content: '✅ LTC daily spend limit removed — sends are now unlimited.', ephemeral: true });
+      return interaction.reply({ content: '✅ LTC spend limit removed — sends are now unlimited.', ephemeral: true });
     }
 
     await setSpendLimitUsd(amount);
-    const spentToday = await getSpentTodayUsd();
+    const spentTotal = await getSpentTotalUsd();
 
     return interaction.reply({
       embeds: [
         new EmbedBuilder()
-          .setTitle('✅ LTC Daily Spend Limit Updated')
+          .setTitle('✅ LTC Spend Limit Updated')
           .setColor(0x57F287)
           .addFields(
-            { name: 'Daily Limit', value: `$${amount.toFixed(2)}`, inline: true },
-            { name: 'Spent Today', value: `$${spentToday.toFixed(2)}`, inline: true },
+            { name: 'Overall Limit', value: `$${amount.toFixed(2)}`, inline: true },
+            { name: 'Sent So Far',   value: `$${spentTotal.toFixed(2)}`, inline: true },
           )
-          .setFooter({ text: 'Applies to /tip and automatic invite-reward payouts combined, resets daily (UTC)' }),
+          .setFooter({ text: 'Applies to /tip and automatic invite-reward payouts combined — does not reset; raise the limit to allow more' }),
       ],
       ephemeral: true,
     });
