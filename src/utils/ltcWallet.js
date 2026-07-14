@@ -45,6 +45,14 @@ async function sendLtc(toAddress, amountLtc) {
   }));
   if (utxos.length === 0) throw new Error('Bot wallet has no spendable UTXOs.');
 
+  const totalAvailable = utxos.reduce((sum, u) => sum + u.satoshis, 0);
+  const totalNeeded = satoshis + NETWORK_FEE_SATOSHIS;
+  if (totalAvailable < totalNeeded) {
+    throw new Error(
+      `Insufficient funds in payout wallet: have ${(totalAvailable / 1e8).toFixed(8)} LTC, need ${(totalNeeded / 1e8).toFixed(8)} LTC (incl. network fee). Fund the wallet — check /botwallet for the address.`
+    );
+  }
+
   const tx = new bitcore.Transaction()
     .from(utxos)
     .to(toAddress, satoshis)
