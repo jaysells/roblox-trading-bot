@@ -1,4 +1,23 @@
 const redis = require('./redis');
+const { DEV_USER_ID } = require('./permissions');
+
+// Alerts the owner (once per guild, not on every failed join) if the bot
+// can't read invites there — almost always a missing "Manage Server"
+// permission on the bot's role, which otherwise fails completely silently
+// (console-only) and looks exactly like "invites just aren't tracking".
+const alertedGuilds = new Set();
+async function alertInvitePermissionIssue(guild, error) {
+  if (alertedGuilds.has(guild.id)) return;
+  alertedGuilds.add(guild.id);
+  try {
+    const owner = await guild.client.users.fetch(DEV_USER_ID);
+    await owner.send(
+      `⚠️ **Invite tracking is broken in "${guild.name}".**\n` +
+      `The bot can't fetch invites there (${error.message}).\n` +
+      `Give the bot's role the **Manage Server** permission in that server's Server Settings → Roles, then it should start working without a restart.`
+    ).catch(() => {});
+  } catch {}
+}
 
 // A join only counts once the member has been in the server this long, and
 // only if their Discord account was already at least this old *when they
@@ -39,6 +58,7 @@ async function cacheGuildInvites(guild) {
     inviteCache.set(guild.id, snapshotInvites(invites));
   } catch (e) {
     console.error(`[invites] Failed to cache invites for ${guild.name}:`, e.message);
+    await alertInvitePermissionIssue(guild, e);
   }
 }
 
@@ -130,6 +150,7 @@ async function findUsedInviterId(guild) {
     newInvites = await guild.invites.fetch();
   } catch (e) {
     console.error(`[invites] Could not fetch invites for ${guild.name} (needs Manage Server):`, e.message);
+    await alertInvitePermissionIssue(guild, e);
     return null;
   }
 
