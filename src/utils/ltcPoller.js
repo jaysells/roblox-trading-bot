@@ -357,4 +357,4 @@ function startPoller(client) {
   console.log('[LTC Poller] Started.');
 }
 
-module.exports = { startPoller, getLTCPrice, updateCapeStockMessage, completePurchase, LOG_CHANNEL_ID };
+module.exports = { startPoller, getLTCPrice, updateCapeStockMessage, completePurchase, LOG_CHANNEL_ID, VOUCH_CHANNEL_ID };

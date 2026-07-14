@@ -14,7 +14,7 @@ const { hasPermission, STAFF_ROLE_ID, CUSTOMER_ROLE_ID } = require('../utils/per
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
 const { getInviterStats, claimInvites, refundInvites } = require('../utils/inviteTracker');
 const { isValidLtcAddress, sendLtc, getSpendLimitUsd, getSpentTotalUsd, reserveSpend, refundSpend } = require('../utils/ltcWallet');
-const { getLTCPrice, LOG_CHANNEL_ID } = require('../utils/ltcPoller');
+const { getLTCPrice, LOG_CHANNEL_ID, VOUCH_CHANNEL_ID } = require('../utils/ltcPoller');
 const { getStoreCreditCents, addStoreCreditCents, getStoreCreditCap } = require('../utils/storeCredit');
 const {
   handleCapeSelect,
@@ -440,6 +440,17 @@ module.exports = {
               ],
             }).catch(() => {});
           }
+
+          try {
+            const dmUser = await client.users.fetch(userId);
+            await dmUser.send(
+              `✅ **Invite reward payout confirmed!**\n` +
+              `Sent **$${amountUsd.toFixed(2)} (${amountLtc.toFixed(6)} LTC)** to \`${wallet}\`\n` +
+              `Invites redeemed: **${count}**\n` +
+              `Tx: \`${txHash}\`\n\n` +
+              `🙏 Don't forget to leave a vouch in <#${VOUCH_CHANNEL_ID}>!`
+            ).catch(() => {});
+          } catch {}
 
           return interaction.editReply({
             content: `✅ **Sent $${amountUsd.toFixed(2)} (${amountLtc.toFixed(6)} LTC)** to \`${wallet}\`\nInvites redeemed: **${count}**\nTx: \`${txHash}\``,

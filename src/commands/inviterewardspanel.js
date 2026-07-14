@@ -40,9 +40,8 @@ async function buildBalancesEmbed() {
     .setTitle('💳 Payout Balances')
     .setColor(0x2ECC71)
     .addFields(
-      { name: '🪙 LTC Wallet',              value: ltcUsd != null ? `$${Math.round(ltcUsd)}` : '*(unavailable)*', inline: true },
-      { name: '🏪 Store Credit Outstanding', value: `$${Math.round(scCents / 100)}`, inline: true },
-      { name: '📈 Store Credit Remaining',   value: remainingText, inline: true },
+      { name: '🪙 LTC Wallet Remaining',   value: ltcUsd != null ? `$${ltcUsd.toFixed(2)}` : '*(unavailable)*', inline: true },
+      { name: '📈 Store Credit Remaining', value: remainingText, inline: true },
     )
     .setTimestamp();
 }
