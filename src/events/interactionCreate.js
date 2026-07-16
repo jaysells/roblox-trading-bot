@@ -10,7 +10,7 @@ const {
   ButtonStyle,
 } = require('discord.js');
 const redis = require('../utils/redis');
-const { hasPermission, STAFF_ROLE_ID, CUSTOMER_ROLE_ID } = require('../utils/permissions');
+const { hasPermission, STAFF_ROLE_ID } = require('../utils/permissions');
 const { buildGiveawayEmbed } = require('../utils/giveawayManager');
 const { getInviterStats, claimInvites, refundInvites } = require('../utils/inviteTracker');
 const { isValidLtcAddress, sendLtc, getSpendLimitUsd, getSpentTotalUsd, reserveSpend, refundSpend } = require('../utils/ltcWallet');
@@ -233,9 +233,6 @@ module.exports = {
         if (customId === 'cape_wallet_change')   return await handleWalletChange(interaction, client);
 
         if (customId === 'invreward_claim_money') {
-          if (!interaction.member.roles.cache.has(CUSTOMER_ROLE_ID)) {
-            return await interaction.reply({ content: `❌ You need the <@&${CUSTOMER_ROLE_ID}> role (make a purchase first) to claim invite rewards.`, ephemeral: true });
-          }
           const stats = await getInviterStats(interaction.user.id);
           if (stats.claimable <= 0) {
             return await interaction.reply({ content: "❌ You don't have any invites to claim yet.", ephemeral: true });
@@ -254,9 +251,6 @@ module.exports = {
         }
 
         if (customId === 'invreward_claim_capes') {
-          if (!interaction.member.roles.cache.has(CUSTOMER_ROLE_ID)) {
-            return await interaction.reply({ content: `❌ You need the <@&${CUSTOMER_ROLE_ID}> role (make a purchase first) to claim invite rewards.`, ephemeral: true });
-          }
           const stats = await getInviterStats(interaction.user.id);
           if (stats.claimable <= 0) {
             return await interaction.reply({ content: "❌ You don't have any invites to claim yet.", ephemeral: true });
