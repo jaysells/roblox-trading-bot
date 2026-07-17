@@ -555,6 +555,10 @@ module.exports = {
           const cmd = client.commands.get('updatestock');
           if (cmd && cmd.handleSelect) return await cmd.handleSelect(interaction, client);
         }
+        if (interaction.customId.startsWith('removecode_select:')) {
+          const cmd = client.commands.get('removecode');
+          if (cmd && cmd.handleSelect) return await cmd.handleSelect(interaction, client);
+        }
       }
     } catch (e) {
       console.error('Interaction error:', e);
