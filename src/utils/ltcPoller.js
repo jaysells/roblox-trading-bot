@@ -11,7 +11,10 @@ const { addStoreCreditCents } = require('./storeCredit');
 
 const LOG_CHANNEL_ID   = '1524672603585904742';
 const VOUCH_CHANNEL_ID = '1499195804903280812';
-const POLL_INTERVAL    = 20_000;
+// Every cycle does a redis.get + redis.keys('ltc:pending:*') even when idle, so this
+// is the bot's dominant Redis-command driver. Raised 20s -> 60s to cut that ~3x and
+// stay under Upstash's free-tier limit; still well within LTC confirmation times.
+const POLL_INTERVAL    = 60_000;
 
 function parseEmoji(str) {
   const match = str.match(/^<(a?):([^:]+):(\d+)>$/);

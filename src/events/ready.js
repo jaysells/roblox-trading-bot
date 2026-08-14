@@ -11,7 +11,7 @@ const KEEPALIVE_CHANNELS = [
   '1510154600072745121',
 ];
 const INTERVAL_MS = 90 * 60 * 1000; // 1.5 hours
-const PANEL_UPDATE_INTERVAL_MS = 10 * 60 * 1000;
+const PANEL_UPDATE_INTERVAL_MS = 20 * 60 * 1000; // 20 min (was 10) — trims Redis reads
 
 async function ping(client) {
   for (const channelId of KEEPALIVE_CHANNELS) {
