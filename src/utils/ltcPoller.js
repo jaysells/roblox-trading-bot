@@ -313,17 +313,25 @@ async function checkPendingPayments(client) {
       const txTime = tx.received ? new Date(tx.received).getTime() : Date.now();
       if (txTime < createdAt - 60_000) continue;
 
-      // Primary match: transaction must come from the buyer's registered wallet
-      const fromBuyer = (tx.inputs || []).some(inp =>
-        inp.addresses && inp.addresses.includes(pending.buyerLtcAddress)
-      );
-      if (!fromBuyer) continue;
-
       const outputToUs = (tx.outputs || []).find(out =>
         out.addresses && out.addresses.includes(ltcAddress)
       );
       if (!outputToUs) continue;
       if (outputToUs.value < minLitoshis) continue;
+
+      // Matched on destination + amount + timing — NOT the buyer's registered
+      // wallet address. Most wallets (HD wallets, exchanges, Exodus, Trust
+      // Wallet, etc.) don't send from a fixed/reused address, so the input
+      // address on a real payment routinely doesn't match whatever the buyer
+      // pasted into "Set Wallet" — requiring it here used to make legitimate
+      // payments invisible to the poller. Still logged for reference/support
+      // when it doesn't match, just not enforced.
+      const fromBuyer = (tx.inputs || []).some(inp =>
+        inp.addresses && inp.addresses.includes(pending.buyerLtcAddress)
+      );
+      if (!fromBuyer) {
+        console.log(`[LTC Poller] tx ${tx.hash} matched ${userId}'s order by amount/destination, but its input address doesn't match their registered wallet (${pending.buyerLtcAddress}).`);
+      }
 
       if ((tx.confirmations || 0) >= 1) {
         await completePurchase(client, userId, pending, tx.hash);
