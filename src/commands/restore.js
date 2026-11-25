@@ -21,7 +21,7 @@ function buildKeypadEmbed(entered) {
     .setTitle('🔐  Server Restore')
     .setDescription(
       '> Enter the **4-digit restore code** to begin.\n' +
-      '> This will rebuild channels, roles, and vouches.\n\u200b'
+      '> This will rebuild channels and roles.\n\u200b'
     )
     .addFields({ name: 'Code Entry', value: display, inline: false })
     .setFooter({ text: 'Session expires in 60 seconds · Wrong code = locked out' });
@@ -127,30 +127,6 @@ async function runRestore(interaction, client) {
     }
   }
 
-  if (data.vouchChannelId) {
-    const newVouchChannel = channelMap.get(data.vouchChannelId);
-    if (newVouchChannel) {
-      const vouchKeys = await redis.keys('vouch:*');
-      const vouches = [];
-      for (const key of vouchKeys) {
-        const v = await redis.get(key);
-        if (v) vouches.push(typeof v === 'string' ? JSON.parse(v) : v);
-      }
-      vouches.sort((a, b) => a.timestamp - b.timestamp);
-      for (const v of vouches) {
-        try {
-          const embed = new EmbedBuilder()
-            .setColor(0x57F287)
-            .setAuthor({ name: v.username })
-            .setDescription(v.content)
-            .setTimestamp(v.timestamp)
-            .setFooter({ text: `Original ID: ${v.userId}` });
-          await newVouchChannel.send({ embeds: [embed] });
-        } catch {}
-      }
-    }
-  }
-
   await interaction.editReply({
     embeds: [
       new EmbedBuilder()
@@ -158,8 +134,7 @@ async function runRestore(interaction, client) {
         .setTitle('✅  Restore Complete')
         .setDescription(
           `> ✔ Roles restored: **${roleMap.size}**\n` +
-          `> ✔ Channels restored: **${channelMap.size}**\n` +
-          `> ✔ Vouches reposted\n\u200b`
+          `> ✔ Channels restored: **${channelMap.size}**\n`
         )
         .setTimestamp()
     ],

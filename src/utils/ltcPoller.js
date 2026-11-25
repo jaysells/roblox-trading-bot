@@ -10,7 +10,6 @@ const { CUSTOMER_ROLE_ID } = require('./permissions');
 const { addStoreCreditCents } = require('./storeCredit');
 
 const LOG_CHANNEL_ID   = '1524672603585904742';
-const VOUCH_CHANNEL_ID = '1499195804903280812';
 // Every cycle does a redis.get + redis.keys('ltc:pending:*') even when idle, so this
 // is the bot's dominant Redis-command driver. Raised 20s -> 60s to cut that ~3x and
 // stay under Upstash's free-tier limit; still well within LTC confirmation times.
@@ -193,10 +192,9 @@ async function completePurchase(client, userId, pending, txHash) {
         '',
         '**Note:** sometimes it might take a few minutes for the cape to show up on bedrock edition. Fully restarting Minecraft launcher helps too.',
       ].join('\n');
-      const vouchReminder = `\n\n🙏 Enjoying your cape? Don't forget to leave a vouch in <#${VOUCH_CHANNEL_ID}>!`;
-      await user.send(`✅ **Payment confirmed!**\n\nHere are your cape codes:\n${lines}\n\n${instructions}${vouchReminder}`).catch(() => {});
+      await user.send(`✅ **Payment confirmed!**\n\nHere are your cape codes:\n${lines}\n\n${instructions}`).catch(() => {});
     } else {
-      await user.send(`✅ Payment confirmed! Contact support for your codes.\n\n🙏 Don't forget to leave a vouch in <#${VOUCH_CHANNEL_ID}>!`).catch(() => {});
+      await user.send(`✅ Payment confirmed! Contact support for your codes.`).catch(() => {});
     }
   } catch {}
 
@@ -360,4 +358,4 @@ function startPoller(client) {
   console.log('[LTC Poller] Started.');
 }
 
-module.exports = { startPoller, getLTCPrice, updateCapeStockMessage, completePurchase, LOG_CHANNEL_ID, VOUCH_CHANNEL_ID };
+module.exports = { startPoller, getLTCPrice, updateCapeStockMessage, completePurchase, LOG_CHANNEL_ID };
